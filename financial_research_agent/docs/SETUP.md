@@ -46,12 +46,18 @@ pip install python-dotenv
 ### ✅ Step 4: Run the Enhanced Agent
 
 ```bash
-# From the project root directory
+# RECOMMENDED: Use the venv Python directly (ensures all dependencies are available)
+.venv/bin/python -m financial_research_agent.main_enhanced
+
+# Alternative: Activate venv first, then run
+source .venv/bin/activate
 python -m financial_research_agent.main_enhanced
 
-# Or directly:
-python financial_research_agent/main_enhanced.py
+# Or directly with venv Python:
+.venv/bin/python financial_research_agent/main_enhanced.py
 ```
+
+**Note:** Using `.venv/bin/python` ensures all installed dependencies are available.
 
 ### ✅ Step 5: Try It Out
 
@@ -86,8 +92,12 @@ financial_research_agent/output/YYYYMMDD_HHMMSS/
 ├── 01_search_plan.md
 ├── 02_search_results.md
 ├── 02_edgar_filings.md              ← SEC filing data
-├── 03_comprehensive_report.md       ← Main 3-5 page report
-└── 04_verification.md
+├── 03_financial_statements.md       ← Complete financial statements (tables)
+├── 04_financial_metrics.md          ← Comprehensive ratio analysis
+├── 05_financial_analysis.md         ← Full 800-1200 word financial analysis
+├── 06_risk_analysis.md              ← Full 800-1200 word risk analysis
+├── 07_comprehensive_report.md       ← Main 3-5 page report (synthesized)
+└── 08_verification.md               ← Quality check
 ```
 
 ## Troubleshooting
@@ -199,7 +209,7 @@ async def main():
 1. **Set your OpenAI API key** in `.env`
 2. **Run the agent:**
    ```bash
-   python -m financial_research_agent.main_enhanced
+   .venv/bin/python -m financial_research_agent.main_enhanced
    ```
 3. **Check output:**
    ```bash
@@ -208,7 +218,15 @@ async def main():
 4. **Read the comprehensive report:**
    ```bash
    # Find the latest output directory
-   cat financial_research_agent/output/*/03_comprehensive_report.md
+   cat financial_research_agent/output/*/07_comprehensive_report.md
+   ```
+5. **View financial metrics:**
+   ```bash
+   # Financial statements
+   cat financial_research_agent/output/*/03_financial_statements.md
+
+   # Ratio analysis
+   cat financial_research_agent/output/*/04_financial_metrics.md
    ```
 
 ## Documentation

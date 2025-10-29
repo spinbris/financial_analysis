@@ -12,6 +12,7 @@ from agents import Runner, RunResult, custom_span, gen_trace_id, trace
 from agents.mcp import MCPServerStdio
 
 from .agents.edgar_agent import EdgarAnalysisSummary, edgar_agent
+from .agents.financial_metrics_agent import FinancialMetrics, financial_metrics_agent
 from .agents.financials_agent_enhanced import (
     ComprehensiveFinancialAnalysis,
     financials_agent_enhanced,
@@ -22,6 +23,7 @@ from .agents.search_agent import search_agent
 from .agents.verifier_agent import VerificationResult, verifier_agent
 from .agents.writer_agent_enhanced import ComprehensiveFinancialReport, writer_agent_enhanced
 from .config import AgentConfig, EdgarConfig
+from .formatters import format_financial_statements, format_financial_metrics
 from .printer import Printer
 
 
@@ -82,6 +84,28 @@ async def _edgar_extractor(run_result: RunResult) -> str:
     return output
 
 
+async def _metrics_extractor(run_result: RunResult) -> str:
+    """Custom output extractor for financial metrics agent."""
+    metrics: FinancialMetrics = run_result.final_output
+
+    output = f"**Financial Metrics Summary:**\n{metrics.executive_summary}\n\n"
+
+    output += "**Key Ratios:**\n"
+    if metrics.current_ratio:
+        output += f"- Current Ratio: {metrics.current_ratio:.2f}\n"
+    if metrics.debt_to_equity:
+        output += f"- Debt-to-Equity: {metrics.debt_to_equity:.2f}\n"
+    if metrics.net_profit_margin:
+        output += f"- Net Margin: {metrics.net_profit_margin * 100:.1f}%\n"
+    if metrics.return_on_equity:
+        output += f"- ROE: {metrics.return_on_equity * 100:.1f}%\n"
+
+    output += f"\n*Full statements and detailed ratio analysis available in separate files*\n"
+    output += f"**Source:** {metrics.filing_reference}"
+
+    return output
+
+
 class EnhancedFinancialResearchManager:
     """
     Enhanced orchestrator producing comprehensive 3-5 page research reports
@@ -137,10 +161,15 @@ class EnhancedFinancialResearchManager:
 
                 # Optionally gather EDGAR data if enabled
                 edgar_results = None
+                metrics_results = None
                 if self.edgar_enabled and self.edgar_server:
                     edgar_results = await self._gather_edgar_data(query, search_plan)
+                    # Gather financial metrics and statements
+                    metrics_results = await self._gather_financial_metrics(query)
+                    # Gather specialist analyses and save separately
+                    await self._gather_specialist_analyses(query, search_results)
 
-                report = await self._write_report(query, search_results, edgar_results)
+                report = await self._write_report(query, search_results, edgar_results, metrics_results)
                 verification = await self._verify_report(report)
 
                 final_summary = f"Report complete\n\n{report.executive_summary}"
@@ -339,8 +368,133 @@ class EnhancedFinancialResearchManager:
             self.printer.update_item("edgar", "EDGAR data unavailable", is_done=True)
             return None
 
+    async def _gather_financial_metrics(self, query: str) -> FinancialMetrics | None:
+        """Gather financial statements and calculate comprehensive ratios."""
+        if not self.edgar_server:
+            return None
+
+        self.printer.update_item("metrics", "Extracting financial statements and calculating ratios...")
+
+        try:
+            # Clone metrics agent with MCP server attached
+            metrics_with_mcp = financial_metrics_agent.clone(mcp_servers=[self.edgar_server])
+
+            # Create query for metrics extraction
+            metrics_query = f"Query: {query}\n\nExtract the most recent financial statements and calculate comprehensive financial ratios."
+
+            result = await Runner.run(metrics_with_mcp, metrics_query)
+            metrics = result.final_output_as(FinancialMetrics)
+
+            # Extract company name from query (simple heuristic)
+            company_name = query.split()[0] if query else "Company"
+
+            # Save financial statements (03_financial_statements.md)
+            statements_content = format_financial_statements(
+                balance_sheet=metrics.balance_sheet,
+                income_statement=metrics.income_statement,
+                cash_flow_statement=metrics.cash_flow_statement,
+                company_name=company_name,
+                period=metrics.period,
+                filing_reference=metrics.filing_reference,
+            )
+            self._save_output("03_financial_statements.md", statements_content)
+
+            # Save financial metrics (04_financial_metrics.md)
+            metrics_content = format_financial_metrics(metrics, company_name)
+            self._save_output("04_financial_metrics.md", metrics_content)
+
+            self.printer.mark_item_done("metrics")
+            return metrics
+
+        except Exception as e:
+            self.console.print(f"[yellow]Warning: Financial metrics gathering failed: {e}[/yellow]")
+            self.printer.update_item("metrics", "Financial metrics unavailable", is_done=True)
+            return None
+
+    async def _gather_specialist_analyses(self, query: str, search_results: Sequence[str]) -> None:
+        """Gather detailed financial and risk analyses and save separately."""
+        if not self.edgar_server:
+            return
+
+        self.printer.update_item("specialist_analysis", "Running specialist analyses...")
+
+        try:
+            # Clone specialist agents with EDGAR MCP server access
+            financials_with_edgar = financials_agent_enhanced.clone(mcp_servers=[self.edgar_server])
+            risk_with_edgar = risk_agent_enhanced.clone(mcp_servers=[self.edgar_server])
+
+            # Prepare input data
+            input_data = f"Query: {query}\n\nContext from research:\n{search_results[:3]}"
+
+            # Run financial analysis
+            self.printer.update_item("specialist_analysis", "Running financial analysis...")
+            financials_result = await Runner.run(financials_with_edgar, input_data)
+            financials_analysis = financials_result.final_output_as(ComprehensiveFinancialAnalysis)
+
+            # Save financial analysis (05_financial_analysis.md)
+            financials_content = "# Comprehensive Financial Analysis\n\n"
+            financials_content += f"**Financial Health Rating:** {financials_analysis.financial_health_rating}\n\n"
+            financials_content += "---\n\n"
+            financials_content += "## Executive Summary\n\n"
+            financials_content += f"{financials_analysis.executive_summary}\n\n"
+            financials_content += "---\n\n"
+            financials_content += "## Detailed Analysis\n\n"
+            financials_content += f"{financials_analysis.detailed_analysis}\n\n"
+
+            if financials_analysis.key_metrics:
+                financials_content += "---\n\n"
+                financials_content += "## Key Metrics\n\n"
+                for metric, value in financials_analysis.key_metrics.items():
+                    financials_content += f"- **{metric}**: {value}\n"
+                financials_content += "\n"
+
+            if financials_analysis.filing_references:
+                financials_content += "---\n\n"
+                financials_content += "## Sources\n\n"
+                for ref in financials_analysis.filing_references:
+                    financials_content += f"- {ref}\n"
+
+            self._save_output("05_financial_analysis.md", financials_content)
+
+            # Run risk analysis
+            self.printer.update_item("specialist_analysis", "Running risk analysis...")
+            risk_result = await Runner.run(risk_with_edgar, input_data)
+            risk_analysis = risk_result.final_output_as(ComprehensiveRiskAnalysis)
+
+            # Save risk analysis (06_risk_analysis.md)
+            risk_content = "# Comprehensive Risk Analysis\n\n"
+            risk_content += f"**Overall Risk Rating:** {risk_analysis.risk_rating}\n\n"
+            risk_content += "---\n\n"
+            risk_content += "## Executive Summary\n\n"
+            risk_content += f"{risk_analysis.executive_summary}\n\n"
+
+            if risk_analysis.top_risks:
+                risk_content += "---\n\n"
+                risk_content += "## Top 5 Risks (Prioritized)\n\n"
+                for i, risk in enumerate(risk_analysis.top_risks, 1):
+                    risk_content += f"{i}. {risk}\n"
+                risk_content += "\n"
+
+            risk_content += "---\n\n"
+            risk_content += "## Detailed Risk Analysis\n\n"
+            risk_content += f"{risk_analysis.detailed_analysis}\n\n"
+
+            if risk_analysis.filing_references:
+                risk_content += "---\n\n"
+                risk_content += "## Sources\n\n"
+                for ref in risk_analysis.filing_references:
+                    risk_content += f"- {ref}\n"
+
+            self._save_output("06_risk_analysis.md", risk_content)
+
+            self.printer.mark_item_done("specialist_analysis")
+
+        except Exception as e:
+            self.console.print(f"[yellow]Warning: Specialist analyses failed: {e}[/yellow]")
+            self.printer.update_item("specialist_analysis", "Specialist analyses unavailable", is_done=True)
+
     async def _write_report(
-        self, query: str, search_results: Sequence[str], edgar_results: str | None
+        self, query: str, search_results: Sequence[str], edgar_results: str | None, metrics_results: FinancialMetrics | None
     ) -> ComprehensiveFinancialReport:
         # Expose enhanced specialist analysts as tools with comprehensive analysis
         if self.edgar_enabled and self.edgar_server:
@@ -381,6 +535,14 @@ class EnhancedFinancialResearchManager:
                 custom_output_extractor=_edgar_extractor,
             )
             tools.append(edgar_tool)
+
+            # Add financial metrics tool if available
+            metrics_tool = financial_metrics_agent.clone(mcp_servers=[self.edgar_server]).as_tool(
+                tool_name="financial_metrics",
+                tool_description="Extract financial statements and calculate comprehensive financial ratios (liquidity, solvency, profitability, efficiency)",
+                custom_output_extractor=_metrics_extractor,
+            )
+            tools.append(metrics_tool)
 
         writer_with_tools = writer_agent_enhanced.clone(tools=tools)
 
@@ -431,7 +593,7 @@ class EnhancedFinancialResearchManager:
         report_content += "*This report was generated using AI-powered financial research tools. "
         report_content += "All data should be independently verified before making investment decisions.*\n"
 
-        self._save_output("03_comprehensive_report.md", report_content)
+        self._save_output("07_comprehensive_report.md", report_content)
 
         return report
 
@@ -446,7 +608,7 @@ class EnhancedFinancialResearchManager:
         verification_content = f"# Verification Results\n\n"
         verification_content += f"**Verified:** {'✅ Yes' if verification.verified else '❌ No'}\n\n"
         verification_content += f"## Issues/Comments\n\n{verification.issues}\n"
-        self._save_output("04_verification.md", verification_content)
+        self._save_output("08_verification.md", verification_content)
 
         # Warn if verification failed
         if not verification.verified:
