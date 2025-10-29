@@ -3,6 +3,15 @@
 import os
 from pathlib import Path
 
+# Load .env file if it exists
+try:
+    from dotenv import load_dotenv
+    env_path = Path(__file__).parent / ".env"
+    if env_path.exists():
+        load_dotenv(env_path, override=True)
+except ImportError:
+    pass  # python-dotenv not installed, will use environment variables only
+
 
 class AgentConfig:
     """Configuration for agent models and settings."""

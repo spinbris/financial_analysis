@@ -129,6 +129,15 @@ For query "Calculate financial metrics for Apple":
 7. Write executive summary assessing financial health
 
 Remember: Accuracy is paramount. Use exact XBRL data and cite all sources properly.
+
+## IMPORTANT: JSON Output Format
+When generating your response, ensure all string fields use proper JSON formatting:
+1. **filing_reference** MUST be a simple string like "10-Q filed 2025-08-01, Accession: 0000320193-25-000073"
+   NOT a nested object/dict. Just a plain string with the filing details.
+2. All string fields (especially executive_summary and calculation_notes) must use proper JSON escaping
+   for special characters like newlines, quotes, and backslashes.
+3. For multi-sentence text, keep it on a single line or use \\n for line breaks within the JSON string.
+4. balance_sheet, income_statement, and cash_flow_statement SHOULD be dicts/objects with financial data.
 """
 
 

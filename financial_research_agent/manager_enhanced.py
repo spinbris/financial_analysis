@@ -407,7 +407,21 @@ class EnhancedFinancialResearchManager:
             return metrics
 
         except Exception as e:
-            self.console.print(f"[yellow]Warning: Financial metrics gathering failed: {e}[/yellow]")
+            import traceback
+            error_msg = str(e)
+            # Provide more helpful error messages
+            if "Invalid JSON" in error_msg or "JSON" in error_msg:
+                self.console.print(
+                    f"[yellow]Warning: Financial metrics extraction failed due to JSON parsing error.[/yellow]\n"
+                    f"[dim]This can happen when the LLM returns malformed JSON. The system will continue without detailed metrics.[/dim]"
+                )
+            else:
+                self.console.print(f"[yellow]Warning: Financial metrics gathering failed: {error_msg}[/yellow]")
+
+            # Debug: Print full traceback
+            self.console.print(f"[dim]Full error details:[/dim]")
+            self.console.print(f"[dim]{traceback.format_exc()}[/dim]")
+
             self.printer.update_item("metrics", "Financial metrics unavailable", is_done=True)
             return None
 
