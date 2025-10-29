@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from agents import Agent
+from financial_research_agent.config import AgentConfig
 from agents.agent_output import AgentOutputSchema
 
 # Enhanced financials agent with comprehensive, structured analysis capabilities.
@@ -170,6 +171,7 @@ class ComprehensiveFinancialAnalysis(BaseModel):
 
 # Using strict_json_schema=False because dict[str, Any] is not supported in strict mode
 financials_agent_enhanced = Agent(
+    model=AgentConfig.FINANCIALS_MODEL,
     name="ComprehensiveFinancialsAnalystAgent",
     instructions=FINANCIALS_PROMPT,
     output_type=AgentOutputSchema(ComprehensiveFinancialAnalysis, strict_json_schema=False),

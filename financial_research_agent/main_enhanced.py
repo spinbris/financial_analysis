@@ -18,44 +18,20 @@ import os
 import sys
 from pathlib import Path
 
-try:
-    from dotenv import load_dotenv
-except Exception:  # ImportError or any other import-time issue
-    load_dotenv = None
-    # Helpful runtime guidance when dotenv isn't available
-    print("\n⚠️  Optional package 'python-dotenv' (module name: dotenv) is not installed.")
-    print("If you want to load environment variables from a .env file, install it into your environment.")
-    print("Preferred (project workflow):")
-    print("  uv pip install python-dotenv")
-    print("")
-    print("Or using the project's virtualenv:")
-    print("  # activate venv (recommended)")
-    print("  source .venv/bin/activate")
-    print("  pip install python-dotenv")
-    print("")
-    print("Or install without activating: ./.venv/bin/python -m pip install python-dotenv")
-    print("")
-    print("You can also run the script with the project's venv Python explicitly:")
-    print("  ./.venv/bin/python -m financial_research_agent.main_enhanced\n")
+from dotenv import load_dotenv
 
 # Load environment variables from .env file
 # Look for .env in the financial_research_agent directory
 env_path = Path(__file__).parent / ".env"
 if env_path.exists():
-    if load_dotenv:
-        load_dotenv(env_path, override=True)
-        print(f"✓ Loaded environment from: {env_path}")
-    else:
-        print(f"⚠️  Found .env at {env_path} but 'python-dotenv' is not installed, skipping load.")
+    load_dotenv(env_path, override=True)
+    print(f"✓ Loaded environment from: {env_path}")
 else:
     # Try parent directory
     env_path = Path(__file__).parent.parent / ".env"
     if env_path.exists():
-        if load_dotenv:
-            load_dotenv(env_path, override=True)
-            print(f"✓ Loaded environment from: {env_path}")
-        else:
-            print(f"⚠️  Found .env at {env_path} but 'python-dotenv' is not installed, skipping load.")
+        load_dotenv(env_path, override=True)
+        print(f"✓ Loaded environment from: {env_path}")
     else:
         print("⚠️  Warning: No .env file found. Using environment variables only.")
 

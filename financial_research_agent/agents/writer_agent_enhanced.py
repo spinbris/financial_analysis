@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from datetime import datetime 
 from agents import Agent
+from financial_research_agent.config import AgentConfig
 
 # Enhanced writer agent designed to synthesize comprehensive specialist analysis
 # into a cohesive 3-5 page research report.
@@ -186,6 +187,6 @@ class ComprehensiveFinancialReport(BaseModel):
 writer_agent_enhanced = Agent(
     name="ComprehensiveFinancialWriterAgent",
     instructions=WRITER_PROMPT,
-    model="gpt-4.1",
+    model=AgentConfig.WRITER_MODEL,
     output_type=ComprehensiveFinancialReport,
 )

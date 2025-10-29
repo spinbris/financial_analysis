@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 
 from agents import Agent
+from financial_research_agent.config import AgentConfig
 
 # A sub‑agent focused on analyzing a company's fundamentals.
 # Enhanced to leverage SEC EDGAR filings for exact financial data when available.
@@ -32,6 +33,7 @@ class AnalysisSummary(BaseModel):
 
 
 financials_agent = Agent(
+    model=AgentConfig.FINANCIALS_MODEL,
     name="FundamentalsAnalystAgent",
     instructions=FINANCIALS_PROMPT,
     output_type=AnalysisSummary,

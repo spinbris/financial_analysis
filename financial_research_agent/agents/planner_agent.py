@@ -2,6 +2,7 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from agents import Agent
+from financial_research_agent.config import AgentConfig
 
 # Generate a plan of searches to ground the financial analysis.
 # For a given financial question or company, we want to search for
@@ -54,6 +55,6 @@ class FinancialSearchPlan(BaseModel):
 planner_agent = Agent(
     name="FinancialPlannerAgent",
     instructions=PROMPT,
-    model="o3-mini",
+    model=AgentConfig.PLANNER_MODEL,
     output_type=FinancialSearchPlan,
 )

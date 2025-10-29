@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 
 from agents import Agent
+from financial_research_agent.config import AgentConfig
 
 # A sub‑agent specializing in identifying risk factors or concerns.
 # Enhanced to leverage SEC EDGAR filings when available, particularly the Risk Factors section.
@@ -31,6 +32,7 @@ class AnalysisSummary(BaseModel):
 
 
 risk_agent = Agent(
+    model=AgentConfig.RISK_MODEL,
     name="RiskAnalystAgent",
     instructions=RISK_PROMPT,
     output_type=AnalysisSummary,

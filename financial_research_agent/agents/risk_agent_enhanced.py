@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 
 from agents import Agent
+from financial_research_agent.config import AgentConfig
 
 # Enhanced risk agent with comprehensive, structured analysis capabilities.
 # Produces 2-3 pages of detailed risk analysis when SEC EDGAR tools are available.
@@ -127,6 +128,7 @@ class ComprehensiveRiskAnalysis(BaseModel):
 
 
 risk_agent_enhanced = Agent(
+    model=AgentConfig.RISK_MODEL,
     name="ComprehensiveRiskAnalystAgent",
     instructions=RISK_PROMPT,
     output_type=ComprehensiveRiskAnalysis,

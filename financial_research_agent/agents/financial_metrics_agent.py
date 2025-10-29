@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from agents import Agent
+from financial_research_agent.config import AgentConfig
 from agents.agent_output import AgentOutputSchema
 
 # Financial Metrics agent specializes in extracting financial statements
@@ -227,6 +228,6 @@ class FinancialMetrics(BaseModel):
 financial_metrics_agent = Agent(
     name="FinancialMetricsAgent",
     instructions=FINANCIAL_METRICS_PROMPT,
-    model="gpt-4.1",
+    model=AgentConfig.METRICS_MODEL,
     output_type=AgentOutputSchema(FinancialMetrics, strict_json_schema=False),
 )

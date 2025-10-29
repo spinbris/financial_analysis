@@ -1,5 +1,6 @@
 from agents import Agent, WebSearchTool
 from agents.model_settings import ModelSettings
+from financial_research_agent.config import AgentConfig
 
 # Given a search term, use web search to pull back a brief summary.
 # Summaries should be concise but capture the main financial points.
@@ -12,7 +13,7 @@ INSTRUCTIONS = (
 
 search_agent = Agent(
     name="FinancialSearchAgent",
-    model="gpt-4.1",
+    model=AgentConfig.SEARCH_MODEL,
     instructions=INSTRUCTIONS,
     tools=[WebSearchTool()],
     model_settings=ModelSettings(tool_choice="required"),

@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from datetime import datetime
 from agents import Agent
+from financial_research_agent.config import AgentConfig
 
 # Agent to sanity‑check a synthesized report for consistency and recall.
 # This can be used to flag potential gaps or obvious mistakes.
@@ -23,6 +24,6 @@ class VerificationResult(BaseModel):
 verifier_agent = Agent(
     name="VerificationAgent",
     instructions=VERIFIER_PROMPT,
-    model="gpt-4o",
+    model=AgentConfig.VERIFIER_MODEL,
     output_type=VerificationResult,
 )

@@ -13,10 +13,18 @@ class AgentConfig:
     WRITER_MODEL = os.getenv("WRITER_MODEL", "gpt-4.1")
     VERIFIER_MODEL = os.getenv("VERIFIER_MODEL", "gpt-4o")
     EDGAR_MODEL = os.getenv("EDGAR_MODEL", "gpt-4.1")
+    FINANCIALS_MODEL = os.getenv("FINANCIALS_MODEL", "gpt-4.1")
+    RISK_MODEL = os.getenv("RISK_MODEL", "gpt-4.1")
+    METRICS_MODEL = os.getenv("METRICS_MODEL", "gpt-4.1")
 
     # Search configuration
     MAX_SEARCH_RETRIES = int(os.getenv("MAX_SEARCH_RETRIES", "3"))
     SEARCH_RETRY_DELAY = float(os.getenv("SEARCH_RETRY_DELAY", "2.0"))
+
+    # Agent execution configuration
+    MAX_AGENT_TURNS = int(os.getenv("MAX_AGENT_TURNS", "25"))
+    """Maximum number of turns (tool calls) an agent can make in a single run.
+    Default is 25. Financial metrics agent may need 15-20 turns for complex queries."""
 
     # Output configuration
     OUTPUT_DIR = os.getenv("OUTPUT_DIR", "financial_research_agent/output")

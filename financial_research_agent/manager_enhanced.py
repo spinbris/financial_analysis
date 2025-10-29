@@ -382,7 +382,7 @@ class EnhancedFinancialResearchManager:
             # Create query for metrics extraction
             metrics_query = f"Query: {query}\n\nExtract the most recent financial statements and calculate comprehensive financial ratios."
 
-            result = await Runner.run(metrics_with_mcp, metrics_query)
+            result = await Runner.run(metrics_with_mcp, metrics_query, max_turns=AgentConfig.MAX_AGENT_TURNS)
             metrics = result.final_output_as(FinancialMetrics)
 
             # Extract company name from query (simple heuristic)

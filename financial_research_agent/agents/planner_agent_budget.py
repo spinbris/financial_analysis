@@ -2,6 +2,7 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from agents import Agent
+from financial_research_agent.config import AgentConfig
 
 # Budget-optimized planner: requests 5-8 searches instead of 5-15
 # This reduces cost by ~30% while maintaining good coverage
@@ -52,6 +53,6 @@ class FinancialSearchPlan(BaseModel):
 planner_agent_budget = Agent(
     name="BudgetFinancialPlannerAgent",
     instructions=PROMPT,
-    model="o3-mini",
+    model=AgentConfig.PLANNER_MODEL,
     output_type=FinancialSearchPlan,
 )

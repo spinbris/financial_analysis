@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from agents import Agent
+from financial_research_agent.config import AgentConfig
 from agents.agent_output import AgentOutputSchema
 
 # EDGAR agent specializes in retrieving and analyzing SEC filings.
@@ -48,6 +49,6 @@ class EdgarAnalysisSummary(BaseModel):
 edgar_agent = Agent(
     name="EdgarFilingAgent",
     instructions=EDGAR_PROMPT,
-    model="gpt-4.1",
+    model=AgentConfig.EDGAR_MODEL,
     output_type=AgentOutputSchema(EdgarAnalysisSummary, strict_json_schema=False),
 )
