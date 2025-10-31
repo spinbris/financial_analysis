@@ -1,5 +1,47 @@
 # Attribution and Licensing
 
+## Project Foundation
+
+This project is based on the **OpenAI Agents Python SDK Financial Research Agent Example**.
+
+**Source:** https://github.com/openai/openai-agents-python/tree/main/examples/financial_research_agent
+
+**License:** MIT License (Copyright OpenAI)
+
+**Modifications:**
+- Enhanced multi-agent architecture with specialized financial and risk agents
+- Integrated SEC EDGAR data extraction via edgartools library
+- Added comprehensive financial statement extraction (118+ line items)
+- Implemented cost-optimization with GPT-5 model selection
+- Added comparative period financial analysis
+
+---
+
+## SEC EDGAR Data Extraction
+
+### edgartools Library
+
+This project uses the **edgartools** Python library for comprehensive SEC EDGAR data extraction.
+
+**Author:** Dwight Gunning
+**Repository:** https://github.com/dgunning/edgartools
+**License:** MIT License
+**PyPI:** https://pypi.org/project/edgartools/
+
+**Usage:**
+- Direct extraction of financial statements from SEC EDGAR filings
+- Access to complete XBRL data (118+ line items per company)
+- Balance sheet, income statement, and cash flow statement extraction
+- Comparative period analysis (current vs. prior period)
+
+**Citation:**
+```
+Gunning, D. (2024). edgartools: Python library for accessing SEC EDGAR filings.
+https://github.com/dgunning/edgartools
+```
+
+---
+
 ## SEC EDGAR MCP Server
 
 This project uses the **SEC EDGAR MCP (Model Context Protocol) Server** for accessing official SEC filing data.

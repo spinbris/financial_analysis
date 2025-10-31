@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from collections.abc import Sequence
 from datetime import datetime
@@ -376,17 +377,69 @@ class EnhancedFinancialResearchManager:
         self.printer.update_item("metrics", "Extracting financial statements and calculating ratios...")
 
         try:
-            # Clone metrics agent with MCP server attached
-            metrics_with_mcp = financial_metrics_agent.clone(mcp_servers=[self.edgar_server])
-
-            # Create query for metrics extraction
-            metrics_query = f"Query: {query}\n\nExtract the most recent financial statements and calculate comprehensive financial ratios."
-
-            result = await Runner.run(metrics_with_mcp, metrics_query, max_turns=AgentConfig.MAX_AGENT_TURNS)
-            metrics = result.final_output_as(FinancialMetrics)
+            # Import deterministic extraction module
+            from financial_research_agent.edgar_tools import extract_financial_data_deterministic
 
             # Extract company name from query (simple heuristic)
             company_name = query.split()[0] if query else "Company"
+
+            # Step 1: Use deterministic extraction to get complete financial data
+            self.printer.update_item("metrics", f"Extracting financial data for {company_name} using deterministic MCP tools...")
+
+            statements_data = None
+            try:
+                statements_data = await extract_financial_data_deterministic(
+                    self.edgar_server,
+                    company_name
+                )
+                self.console.print(f"[green]Successfully extracted {len(statements_data['balance_sheet'])} balance sheet items[/green]")
+                self.console.print(f"[green]Successfully extracted {len(statements_data['income_statement'])} income statement items[/green]")
+                self.console.print(f"[green]Successfully extracted {len(statements_data['cash_flow_statement'])} cash flow items[/green]")
+            except Exception as e:
+                self.console.print(f"[yellow]Warning: Deterministic extraction failed: {e}[/yellow]")
+                import traceback
+                traceback.print_exc()
+                self.console.print("[yellow]Falling back to LLM-based extraction...[/yellow]")
+
+            # Step 2: Clone metrics agent with MCP server attached
+            metrics_with_mcp = financial_metrics_agent.clone(mcp_servers=[self.edgar_server])
+
+            # Step 3: Create query for the agent
+            if statements_data and statements_data['balance_sheet']:
+                # We have deterministic data - provide it to the agent
+                self.printer.update_item("metrics", "Calculating financial ratios from extracted data...")
+                metrics_query = f"""Query: {query}
+
+Financial statements have been pre-extracted from SEC EDGAR using deterministic get_company_facts API:
+
+Balance Sheet ({len(statements_data['balance_sheet'])} line items):
+{json.dumps(statements_data['balance_sheet'], indent=2)}
+
+Income Statement ({len(statements_data['income_statement'])} line items):
+{json.dumps(statements_data['income_statement'], indent=2)}
+
+Cash Flow Statement ({len(statements_data['cash_flow_statement'])} line items):
+{json.dumps(statements_data['cash_flow_statement'], indent=2)}
+
+Your task:
+1. Use the provided financial statement data above (with _Current and _Prior suffixes)
+2. Calculate comprehensive financial ratios using the CURRENT period data
+3. Return the complete FinancialMetrics output with:
+   - All provided balance sheet items
+   - All provided income statement items
+   - All provided cash flow statement items
+   - All calculated financial ratios
+   - Period dates and filing references
+"""
+            else:
+                # Fallback to LLM extraction
+                metrics_query = f"""Query: {query}
+
+Extract complete financial statements and calculate comprehensive financial ratios.
+Use get_company_facts to get ALL available XBRL data."""
+
+            result = await Runner.run(metrics_with_mcp, metrics_query, max_turns=AgentConfig.MAX_AGENT_TURNS)
+            metrics = result.final_output_as(FinancialMetrics)
 
             # Save financial statements (03_financial_statements.md)
             statements_content = format_financial_statements(
@@ -442,7 +495,7 @@ class EnhancedFinancialResearchManager:
 
             # Run financial analysis
             self.printer.update_item("specialist_analysis", "Running financial analysis...")
-            financials_result = await Runner.run(financials_with_edgar, input_data)
+            financials_result = await Runner.run(financials_with_edgar, input_data, max_turns=AgentConfig.MAX_AGENT_TURNS)
             financials_analysis = financials_result.final_output_as(ComprehensiveFinancialAnalysis)
 
             # Save financial analysis (05_financial_analysis.md)
@@ -472,7 +525,7 @@ class EnhancedFinancialResearchManager:
 
             # Run risk analysis
             self.printer.update_item("specialist_analysis", "Running risk analysis...")
-            risk_result = await Runner.run(risk_with_edgar, input_data)
+            risk_result = await Runner.run(risk_with_edgar, input_data, max_turns=AgentConfig.MAX_AGENT_TURNS)
             risk_analysis = risk_result.final_output_as(ComprehensiveRiskAnalysis)
 
             # Save risk analysis (06_risk_analysis.md)
@@ -504,7 +557,11 @@ class EnhancedFinancialResearchManager:
             self.printer.mark_item_done("specialist_analysis")
 
         except Exception as e:
+            import traceback
             self.console.print(f"[yellow]Warning: Specialist analyses failed: {e}[/yellow]")
+            # Debug: Print full traceback
+            self.console.print(f"[dim]Full error details:[/dim]")
+            self.console.print(f"[dim]{traceback.format_exc()}[/dim]")
             self.printer.update_item("specialist_analysis", "Specialist analyses unavailable", is_done=True)
 
     async def _write_report(

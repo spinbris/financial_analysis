@@ -2,12 +2,19 @@
 
 A comprehensive AI-powered financial research system that produces investment-grade reports with SEC EDGAR integration.
 
+**Based on:** [OpenAI Agents SDK Financial Research Example](https://github.com/openai/openai-agents-python/tree/main/examples/financial_research_agent)
+
 ## Features
 
 - **Comprehensive Analysis**: 3-5 page reports with 800-1200 word specialist analysis
-- **SEC EDGAR Integration**: Direct access to official SEC filings (10-K, 10-Q, 8-K) with exact XBRL data
+- **Complete Financial Statements**: 118+ line items with comparative periods via deterministic [edgartools](https://github.com/dgunning/edgartools) extraction
+  - Balance Sheet: 36+ line items (current & prior period)
+  - Income Statement: 46+ line items with product/geographic breakdowns
+  - Cash Flow: 36+ line items with all activities
+  - **8.6x more data** than MCP tool approach
+- **SEC EDGAR Integration**: Direct access to official SEC filings (10-K, 10-Q, 8-K) with exact XBRL precision
 - **Specialist Agents**: Dedicated financial and risk analysts with EDGAR access
-- **Budget Mode**: ~90 reports for $20 with 50% cost savings
+- **Budget Mode**: Cost-optimized configuration still available
 - **Investment Grade**: Suitable for institutional investors and decision-makers
 
 ## Quick Start
@@ -58,20 +65,31 @@ Analyze Apple's most recent quarterly performance
 - **[EDGAR_INTEGRATION_GUIDE.md](EDGAR_INTEGRATION_GUIDE.md)** - EDGAR integration details
 - **[ATTRIBUTION.md](ATTRIBUTION.md)** - Licensing and attribution
 
-## Attribution
+## Attribution & License
 
-This project uses the **SEC EDGAR MCP Server** for accessing official SEC filing data.
+### This Project
+**License:** MIT License
+**Copyright:** 2025 Stephen Parton
+See [LICENSE](LICENSE) for full license text.
 
-**Citation:**
-```
-Amorelli, S. (2025). SEC EDGAR MCP (Model Context Protocol) Server (Version 1.0.6)
-[Computer software]. Zenodo. https://doi.org/10.5281/zenodo.17123166
-```
+### Dependencies
 
-**License:** AGPL-3.0
-**Source:** https://github.com/stefanoamorelli/sec-edgar-mcp
+**Based on OpenAI Agents SDK Example**
+- Source: https://github.com/openai/openai-agents-python/tree/main/examples/financial_research_agent
+- License: MIT (Copyright OpenAI)
 
-See [ATTRIBUTION.md](ATTRIBUTION.md) for complete licensing information.
+**Financial Data Extraction: edgartools**
+- Author: Dwight Gunning
+- Source: https://github.com/dgunning/edgartools
+- License: MIT
+
+**SEC EDGAR MCP Server** (for EDGAR agent)
+- Author: Stefano Amorelli
+- Source: https://github.com/stefanoamorelli/sec-edgar-mcp
+- License: AGPL-3.0
+- Citation: Amorelli, S. (2025). SEC EDGAR MCP Server. https://doi.org/10.5281/zenodo.17123166
+
+See [ATTRIBUTION.md](financial_research_agent/docs/ATTRIBUTION.md) for complete licensing information.
 
 ## Output
 
@@ -93,3 +111,18 @@ All prompts and sub-agents can be customized for your specific needs. See the do
 - Adjusting output structure
 - Adding new data sources
 - Configuring models and costs
+
+## Technology Stack
+
+**LLM Provider:** OpenAI (GPT-4.1, o3-mini)
+- Required for OpenAI Agents SDK compatibility
+- Advanced function calling for EDGAR MCP tools
+- Investment-grade analysis quality
+
+**Note on Open-Source Models:**
+While open-source models from [Hugging Face](https://huggingface.co/open-llm-leaderboard) (e.g., Llama 3.3 70B, Qwen 2.5 72B) are improving rapidly, this project currently requires OpenAI models due to:
+- OpenAI Agents SDK framework dependency
+- Reliable tool/function calling for MCP integration
+- Quality requirements for financial analysis
+
+Future versions could support open-source models with agent framework migration (LangChain, AutoGen, etc.).

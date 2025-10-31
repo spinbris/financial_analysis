@@ -5,15 +5,54 @@ build/
 dist/
 wheels/
 *.egg-info
+*.pyc
+*.pyo
+*.pyd
+.Python
 
 # Virtual environments
 .venv
+venv/
+ENV/
+env/
 
 # Environment and secrets
 .env
 .env.*
-env
+.env.local
+.env.budget
 *.env
 
 # Output directories
 financial_research_agent/output/
+output/
+*.log
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test files and debugging
+tests/*.json
+tests/debug_*.py
+*.sqlite
+*.db
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.bak
+*.cache

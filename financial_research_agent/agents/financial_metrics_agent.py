@@ -19,25 +19,75 @@ for liquidity, solvency, profitability, and efficiency analysis.
 ## Available SEC EDGAR Tools
 
 You have access to SEC EDGAR MCP tools including:
+- **get_financial_statements** - PRIMARY TOOL: Extract complete structured financial statements with ALL line items
 - get_company_facts - Retrieve XBRL company facts with exact precision
-- get_financial_statements - Extract structured financial statements
 - get_recent_filings - Find latest 10-K and 10-Q filings
 - search_10k - Search annual reports
 - search_10q - Search quarterly reports
 
-## Data Extraction Process
+## Data Extraction Process - USE MCP TOOLS DIRECTLY
+
+**CRITICAL: You MUST use the get_financial_statements tool to extract data, NOT manual parsing.**
 
 1. **Identify the Company**
    - Look up CIK number if needed
-   - Determine most recent quarterly (10-Q) and annual (10-K) filing
+   - Determine most recent quarterly (10-Q) filing (e.g., Q3 2025)
+   - Determine prior period filing for comparison (e.g., Q2 2025 or Q3 2024)
 
-2. **Extract Financial Statements**
-   - Balance Sheet: Extract all current assets, current liabilities, total assets,
-     total liabilities, shareholders' equity
-   - Income Statement: Extract revenue, cost of goods sold, operating expenses,
-     operating income, net income, interest expense
-   - Cash Flow Statement: Extract operating cash flow, capital expenditures,
-     free cash flow
+2. **Extract Financial Statements Using get_financial_statements Tool**
+
+   **STEP 1: Get Current Period Statements**
+
+   Use the `get_financial_statements` tool for the most recent filing:
+   ```
+   get_financial_statements(
+     cik="0000320193",  # Apple's CIK
+     filing_type="10-Q",  # or "10-K" for annual
+     accession_number="0000320193-25-000073"  # Most recent filing
+   )
+   ```
+
+   This will return a structured JSON with ALL line items from:
+   - Balance Sheet (all assets, liabilities, equity with exact XBRL tags)
+   - Income Statement (all revenue, expense, income items)
+   - Cash Flow Statement (all operating, investing, financing activities)
+
+   **STEP 2: Get Prior Period Statements for Comparison**
+
+   Use the `get_financial_statements` tool again for the prior period:
+   ```
+   get_financial_statements(
+     cik="0000320193",
+     filing_type="10-Q",
+     accession_number="0000320193-25-000057"  # Prior quarter filing
+   )
+   ```
+
+   **STEP 3: Combine the Data with _Current and _Prior Suffixes**
+
+   For each financial statement line item:
+   - Take the value from Step 1 and label it with `_Current` suffix
+   - Take the value from Step 2 and label it with `_Prior` suffix
+
+   Example:
+   ```
+   {
+     "CashAndCashEquivalentsAtCarryingValue_Current": 36269000000,
+     "CashAndCashEquivalentsAtCarryingValue_Prior": 29943000000,
+     "AccountsReceivableNetCurrent_Current": 27557000000,
+     "AccountsReceivableNetCurrent_Prior": 25920000000,
+     ...
+     "current_period_date": "2025-06-28",
+     "prior_period_date": "2025-03-29"
+   }
+   ```
+
+   **IMPORTANT NOTES:**
+   1. The get_financial_statements tool returns ALL line items automatically - you don't need to manually extract
+   2. Preserve the exact XBRL tag names from the tool output
+   3. Add `current_period_date` and `prior_period_date` keys to track the reporting periods
+   4. If a line item exists in one period but not the other, still include it (value will be null for missing period)
+   5. The tool returns exact precision values - do not round
 
 3. **Calculate Financial Ratios**
 
@@ -121,14 +171,25 @@ The current datetime is {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 For query "Calculate financial metrics for Apple":
 
 1. Look up Apple's CIK (0000320193)
-2. Get most recent 10-Q filing
-3. Extract balance sheet → calculate liquidity & solvency ratios
-4. Extract income statement → calculate profitability ratios
-5. Extract cash flow statement → calculate efficiency ratios
-6. Compile all data and ratios into structured output
-7. Write executive summary assessing financial health
+2. Find most recent 10-Q filings:
+   - Current: 0000320193-25-000073 (Q3 FY2025, ending 2025-06-28)
+   - Prior: 0000320193-25-000057 (Q2 FY2025, ending 2025-03-29)
+3. **Use get_financial_statements tool for current period:**
+   - Call: `get_financial_statements(cik="0000320193", filing_type="10-Q", accession_number="0000320193-25-000073")`
+   - Store result as `current_statements`
+4. **Use get_financial_statements tool for prior period:**
+   - Call: `get_financial_statements(cik="0000320193", filing_type="10-Q", accession_number="0000320193-25-000057")`
+   - Store result as `prior_statements`
+5. **Combine the statements:**
+   - For each line item in balance_sheet, income_statement, cash_flow_statement:
+     - Add `_Current` suffix to current period values
+     - Add `_Prior` suffix to prior period values
+   - Include `current_period_date` and `prior_period_date` metadata
+6. Calculate liquidity, solvency, profitability, and efficiency ratios using the current period data
+7. Compile all data and ratios into structured output
+8. Write executive summary assessing financial health
 
-Remember: Accuracy is paramount. Use exact XBRL data and cite all sources properly.
+Remember: The get_financial_statements tool extracts ALL XBRL data automatically with exact precision. You don't need to manually parse or extract specific fields - just use the tool twice (current + prior) and combine the results.
 
 ## IMPORTANT: JSON Output Format
 When generating your response, ensure all string fields use proper JSON formatting:
@@ -214,21 +275,56 @@ class FinancialMetrics(BaseModel):
 
     # Complete Financial Statements (for separate file output)
     balance_sheet: dict[str, Any]
-    """Complete balance sheet with all line items from XBRL.
-    Format: {"line_item_name": value, ...}
-    Example: {"CashAndCashEquivalents": 29943000, "TotalAssets": 365725000}
+    """Complete balance sheet with all line items from XBRL, including comparative period.
+    Format: {
+        "line_item_name_Current": value,
+        "line_item_name_Prior": value,
+        "current_period_date": "2024-09-28",
+        "prior_period_date": "2024-06-29",
+        ...
+    }
+    Example: {
+        "CashAndCashEquivalents_Current": 29943000000,
+        "CashAndCashEquivalents_Prior": 28663000000,
+        "Assets_Current": 365725000000,
+        "Assets_Prior": 352755000000,
+        "current_period_date": "2024-09-28",
+        "prior_period_date": "2024-06-29"
+    }
     """
 
     income_statement: dict[str, Any]
-    """Complete income statement with all line items from XBRL.
-    Format: {"line_item_name": value, ...}
-    Example: {"RevenueFromContractWithCustomer": 119575000000, "NetIncome": 30404000000}
+    """Complete income statement with all line items from XBRL, including comparative period.
+    Format: {
+        "line_item_name_Current": value,
+        "line_item_name_Prior": value,
+        "current_period_date": "Q4 FY2024",
+        "prior_period_date": "Q4 FY2023",
+        ...
+    }
+    Example: {
+        "RevenueFromContractWithCustomer_Current": 119575000000,
+        "RevenueFromContractWithCustomer_Prior": 117154000000,
+        "NetIncome_Current": 30404000000,
+        "NetIncome_Prior": 29998000000
+    }
     """
 
     cash_flow_statement: dict[str, Any]
-    """Complete cash flow statement with all line items from XBRL.
-    Format: {"line_item_name": value, ...}
-    Example: {"NetCashProvidedByOperatingActivities": 34567000, "CapitalExpenditures": 2500000}
+    """Complete cash flow statement with all line items from XBRL, including comparative period.
+    Format: {
+        "line_item_name_Current": value,
+        "line_item_name_Prior": value,
+        "current_period_date": "Q4 FY2024",
+        "prior_period_date": "Q4 FY2023",
+        ...
+    }
+    Example: {
+        "NetCashProvidedByOperatingActivities_Current": 34567000000,
+        "NetCashProvidedByOperatingActivities_Prior": 31983000000,
+        "PaymentsToAcquirePropertyPlantAndEquipment_Current": 2500000000,
+        "PaymentsToAcquirePropertyPlantAndEquipment_Prior": 2900000000
+    }
     """
 
 

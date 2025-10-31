@@ -182,9 +182,9 @@ def format_financial_statements(
     """Format complete financial statements as markdown with tables.
 
     Args:
-        balance_sheet: Balance sheet line items
-        income_statement: Income statement line items
-        cash_flow_statement: Cash flow statement line items
+        balance_sheet: Balance sheet line items (may include _Current and _Prior suffixed keys)
+        income_statement: Income statement line items (may include _Current and _Prior suffixed keys)
+        cash_flow_statement: Cash flow statement line items (may include _Current and _Prior suffixed keys)
         company_name: Company name
         period: Reporting period
         filing_reference: Filing reference string
@@ -198,15 +198,26 @@ def format_financial_statements(
     output += f"**Filing:** {filing_reference}  \n\n"
     output += "---\n\n"
 
+    # Check if we have comparative period data (keys ending with _Current and _Prior)
+    has_comparative = any(k.endswith("_Current") or k.endswith("_Prior") for k in balance_sheet.keys())
+
+    # Extract period dates if available
+    current_date = balance_sheet.get("current_period_date", "Current")
+    prior_date = balance_sheet.get("prior_period_date", "Prior")
+
     # Balance Sheet
     output += "## Consolidated Balance Sheet\n"
-    output += "*All figures in USD (from XBRL, values in thousands unless noted)*\n\n"
+    output += "*All figures in USD (from XBRL, exact values)*\n\n"
 
     if balance_sheet:
-        output += "| Line Item | Amount |\n"
-        output += "|-----------|--------|\n"
+        if has_comparative:
+            output += f"| Line Item | {current_date} | {prior_date} |\n"
+            output += "|-----------|-----------|----------|\n"
+        else:
+            output += "| Line Item | Amount |\n"
+            output += "|-----------|--------|\n"
 
-        # Group balance sheet items
+        # Group balance sheet items by category
         current_assets = []
         noncurrent_assets = []
         current_liabilities = []
@@ -214,60 +225,112 @@ def format_financial_statements(
         equity = []
         totals = []
 
-        for item, value in balance_sheet.items():
-            item_lower = item.lower()
-            formatted_value = format_currency(value) if isinstance(value, (int, float)) else str(value)
-            row = (item, formatted_value)
+        # Collect unique base item names (without _Current/_Prior suffix)
+        base_items = set()
+        for item in balance_sheet.keys():
+            if item not in ["current_period_date", "prior_period_date"]:
+                base_name = item.replace("_Current", "").replace("_Prior", "")
+                base_items.add(base_name)
 
-            if any(x in item_lower for x in ["totalassets", "totalliabilities", "totalequity", "totalshareholders"]):
-                totals.append(row)
-            elif any(x in item_lower for x in ["currentassets", "cash", "marketable", "receivable", "inventory", "prepaid"]) and "noncurrent" not in item_lower:
-                current_assets.append(row)
-            elif any(x in item_lower for x in ["currentliabilities", "accountspayable", "accruedliabilities", "deferredrevenue"]) and "noncurrent" not in item_lower and "long" not in item_lower:
-                current_liabilities.append(row)
-            elif any(x in item_lower for x in ["equity", "commonstock", "retainedearnings", "accumulated"]):
-                equity.append(row)
-            elif "liabilities" in item_lower or "debt" in item_lower:
-                noncurrent_liabilities.append(row)
-            elif "assets" in item_lower or "property" in item_lower or "goodwill" in item_lower or "intangible" in item_lower:
-                noncurrent_assets.append(row)
+        # Process each item
+        for base_item in sorted(base_items):
+            item_lower = base_item.lower()
+
+            # Get current and prior values if available
+            if has_comparative:
+                current_val = balance_sheet.get(f"{base_item}_Current", balance_sheet.get(base_item))
+                prior_val = balance_sheet.get(f"{base_item}_Prior")
+                formatted_current = format_currency(current_val) if isinstance(current_val, (int, float)) else str(current_val) if current_val is not None else "—"
+                formatted_prior = format_currency(prior_val) if isinstance(prior_val, (int, float)) else str(prior_val) if prior_val is not None else "—"
+                row = (base_item, formatted_current, formatted_prior)
             else:
-                # Default to assets
+                value = balance_sheet.get(base_item)
+                formatted_value = format_currency(value) if isinstance(value, (int, float)) else str(value) if value is not None else "—"
+                row = (base_item, formatted_value)
+
+            # Categorize items - improved logic based on standard XBRL naming
+            if any(x in item_lower for x in ["assets_", "assetscurrent_", "liabilities_", "liabilitiescurrent_", "stockholdersequity", "liabilitiesandstockholders"]) and not any(x in item_lower for x in ["noncurrent", "net"]):
+                totals.append(row)
+            elif any(x in item_lower for x in ["cashandcash", "shortterminvestment", "marketablesecurities", "accountsreceivable", "inventory", "prepaidexpense"]) or item_lower == "assetscurrent":
+                current_assets.append(row)
+            elif any(x in item_lower for x in ["propertyplant", "goodwill", "intangibleassets", "longterminvestment", "otherassetsnoncurrent", "assetsnoncurrent"]):
                 noncurrent_assets.append(row)
+            elif any(x in item_lower for x in ["accountspayable", "accruedliabilities", "deferredrevenuecurrent", "commercialpaper", "longtermdebtcurrent"]) or item_lower == "liabilitiescurrent":
+                current_liabilities.append(row)
+            elif any(x in item_lower for x in ["longtermdebt", "deferredrevenuenoncurrent", "otherliabilitiesnoncurrent", "liabilitiesnoncurrent"]) and "current" not in item_lower:
+                noncurrent_liabilities.append(row)
+            elif any(x in item_lower for x in ["commonstock", "retainedearnings", "accumulated", "stockholdersequity"]):
+                equity.append(row)
+            else:
+                # Check if it's an asset or liability based on context
+                if "assets" in item_lower:
+                    noncurrent_assets.append(row)
+                elif "liabilities" in item_lower or "debt" in item_lower:
+                    noncurrent_liabilities.append(row)
 
         # Assets section
         if current_assets:
-            output += "| **Current Assets** | |\n"
-            for item, value in current_assets:
-                output += f"| {item} | {value} |\n"
+            if has_comparative:
+                output += "| **Current Assets** | | |\n"
+                for item, curr, prior in current_assets:
+                    output += f"| {item} | {curr} | {prior} |\n"
+            else:
+                output += "| **Current Assets** | |\n"
+                for item, value in current_assets:
+                    output += f"| {item} | {value} |\n"
 
         if noncurrent_assets:
-            output += "| **Non-Current Assets** | |\n"
-            for item, value in noncurrent_assets:
-                output += f"| {item} | {value} |\n"
+            if has_comparative:
+                output += "| **Non-Current Assets** | | |\n"
+                for item, curr, prior in noncurrent_assets:
+                    output += f"| {item} | {curr} | {prior} |\n"
+            else:
+                output += "| **Non-Current Assets** | |\n"
+                for item, value in noncurrent_assets:
+                    output += f"| {item} | {value} |\n"
 
         # Liabilities section
         if current_liabilities:
-            output += "| **Current Liabilities** | |\n"
-            for item, value in current_liabilities:
-                output += f"| {item} | {value} |\n"
+            if has_comparative:
+                output += "| **Current Liabilities** | | |\n"
+                for item, curr, prior in current_liabilities:
+                    output += f"| {item} | {curr} | {prior} |\n"
+            else:
+                output += "| **Current Liabilities** | |\n"
+                for item, value in current_liabilities:
+                    output += f"| {item} | {value} |\n"
 
         if noncurrent_liabilities:
-            output += "| **Non-Current Liabilities** | |\n"
-            for item, value in noncurrent_liabilities:
-                output += f"| {item} | {value} |\n"
+            if has_comparative:
+                output += "| **Non-Current Liabilities** | | |\n"
+                for item, curr, prior in noncurrent_liabilities:
+                    output += f"| {item} | {curr} | {prior} |\n"
+            else:
+                output += "| **Non-Current Liabilities** | |\n"
+                for item, value in noncurrent_liabilities:
+                    output += f"| {item} | {value} |\n"
 
         # Equity section
         if equity:
-            output += "| **Shareholders' Equity** | |\n"
-            for item, value in equity:
-                output += f"| {item} | {value} |\n"
+            if has_comparative:
+                output += "| **Shareholders' Equity** | | |\n"
+                for item, curr, prior in equity:
+                    output += f"| {item} | {curr} | {prior} |\n"
+            else:
+                output += "| **Shareholders' Equity** | |\n"
+                for item, value in equity:
+                    output += f"| {item} | {value} |\n"
 
         # Totals
         if totals:
-            output += "| | |\n"
-            for item, value in totals:
-                output += f"| **{item}** | **{value}** |\n"
+            if has_comparative:
+                output += "| | | |\n"
+                for item, curr, prior in totals:
+                    output += f"| **{item}** | **{curr}** | **{prior}** |\n"
+            else:
+                output += "| | |\n"
+                for item, value in totals:
+                    output += f"| **{item}** | **{value}** |\n"
     else:
         output += "*No balance sheet data available*\n"
 
@@ -275,19 +338,48 @@ def format_financial_statements(
 
     # Income Statement
     output += "## Consolidated Statement of Operations\n"
-    output += f"*Period: {period} (from XBRL, values in thousands unless noted)*\n\n"
+    output += f"*Period: {period} (from XBRL, exact values)*\n\n"
+
+    has_comparative_income = any(k.endswith("_Current") or k.endswith("_Prior") for k in income_statement.keys())
+    current_date_income = income_statement.get("current_period_date", "Current")
+    prior_date_income = income_statement.get("prior_period_date", "Prior")
 
     if income_statement:
-        output += "| Line Item | Amount |\n"
-        output += "|-----------|--------|\n"
+        if has_comparative_income:
+            output += f"| Line Item | {current_date_income} | {prior_date_income} |\n"
+            output += "|-----------|-----------|----------|\n"
+        else:
+            output += "| Line Item | Amount |\n"
+            output += "|-----------|--------|\n"
 
-        for item, value in income_statement.items():
-            formatted_value = format_currency(value) if isinstance(value, (int, float)) else str(value)
-            # Bold the key totals
-            if any(x in item.lower() for x in ["revenue", "grossprofit", "operatingincome", "netincome", "ebit"]):
-                output += f"| **{item}** | **{formatted_value}** |\n"
+        # Collect unique base item names
+        base_items_income = set()
+        for item in income_statement.keys():
+            if item not in ["current_period_date", "prior_period_date"]:
+                base_name = item.replace("_Current", "").replace("_Prior", "")
+                base_items_income.add(base_name)
+
+        # Process each item in order
+        for base_item in sorted(base_items_income):
+            if has_comparative_income:
+                current_val = income_statement.get(f"{base_item}_Current", income_statement.get(base_item))
+                prior_val = income_statement.get(f"{base_item}_Prior")
+                formatted_current = format_currency(current_val) if isinstance(current_val, (int, float)) else str(current_val) if current_val is not None else "—"
+                formatted_prior = format_currency(prior_val) if isinstance(prior_val, (int, float)) else str(prior_val) if prior_val is not None else "—"
+
+                # Bold key totals
+                if any(x in base_item.lower() for x in ["revenue", "grossprofit", "operatingincome", "netincome", "ebit"]):
+                    output += f"| **{base_item}** | **{formatted_current}** | **{formatted_prior}** |\n"
+                else:
+                    output += f"| {base_item} | {formatted_current} | {formatted_prior} |\n"
             else:
-                output += f"| {item} | {formatted_value} |\n"
+                value = income_statement.get(base_item)
+                formatted_value = format_currency(value) if isinstance(value, (int, float)) else str(value) if value is not None else "—"
+                # Bold key totals
+                if any(x in base_item.lower() for x in ["revenue", "grossprofit", "operatingincome", "netincome", "ebit"]):
+                    output += f"| **{base_item}** | **{formatted_value}** |\n"
+                else:
+                    output += f"| {base_item} | {formatted_value} |\n"
     else:
         output += "*No income statement data available*\n"
 
@@ -295,11 +387,19 @@ def format_financial_statements(
 
     # Cash Flow Statement
     output += "## Consolidated Statement of Cash Flows\n"
-    output += f"*Period: {period} (from XBRL, values in thousands unless noted)*\n\n"
+    output += f"*Period: {period} (from XBRL, exact values)*\n\n"
+
+    has_comparative_cf = any(k.endswith("_Current") or k.endswith("_Prior") for k in cash_flow_statement.keys())
+    current_date_cf = cash_flow_statement.get("current_period_date", "Current")
+    prior_date_cf = cash_flow_statement.get("prior_period_date", "Prior")
 
     if cash_flow_statement:
-        output += "| Line Item | Amount |\n"
-        output += "|-----------|--------|\n"
+        if has_comparative_cf:
+            output += f"| Line Item | {current_date_cf} | {prior_date_cf} |\n"
+            output += "|-----------|-----------|----------|\n"
+        else:
+            output += "| Line Item | Amount |\n"
+            output += "|-----------|--------|\n"
 
         # Group by activity type
         operating = []
@@ -307,39 +407,76 @@ def format_financial_statements(
         financing = []
         other = []
 
-        for item, value in cash_flow_statement.items():
-            item_lower = item.lower()
-            formatted_value = format_currency(value) if isinstance(value, (int, float)) else str(value)
-            row = (item, formatted_value)
+        # Collect unique base item names
+        base_items_cf = set()
+        for item in cash_flow_statement.keys():
+            if item not in ["current_period_date", "prior_period_date"]:
+                base_name = item.replace("_Current", "").replace("_Prior", "")
+                base_items_cf.add(base_name)
 
-            if "operating" in item_lower:
+        # Process each item and categorize
+        for base_item in sorted(base_items_cf):
+            item_lower = base_item.lower()
+
+            if has_comparative_cf:
+                current_val = cash_flow_statement.get(f"{base_item}_Current", cash_flow_statement.get(base_item))
+                prior_val = cash_flow_statement.get(f"{base_item}_Prior")
+                formatted_current = format_currency(current_val) if isinstance(current_val, (int, float)) else str(current_val) if current_val is not None else "—"
+                formatted_prior = format_currency(prior_val) if isinstance(prior_val, (int, float)) else str(prior_val) if prior_val is not None else "—"
+                row = (base_item, formatted_current, formatted_prior)
+            else:
+                value = cash_flow_statement.get(base_item)
+                formatted_value = format_currency(value) if isinstance(value, (int, float)) else str(value) if value is not None else "—"
+                row = (base_item, formatted_value)
+
+            if "operating" in item_lower or "netincomeloss" in item_lower or "depreciation" in item_lower or "sharebasedcompensation" in item_lower or "increasedecrease" in item_lower:
                 operating.append(row)
-            elif "investing" in item_lower or "capitalexpenditure" in item_lower:
+            elif "investing" in item_lower or "capitalexpenditure" in item_lower or "paymentstoaquire" in item_lower or "proceedsfromsale" in item_lower:
                 investing.append(row)
-            elif "financing" in item_lower:
+            elif "financing" in item_lower or "dividend" in item_lower or "repurchase" in item_lower or "debtissuance" in item_lower or "debt" in item_lower:
                 financing.append(row)
             else:
                 other.append(row)
 
         if operating:
-            output += "| **Operating Activities** | |\n"
-            for item, value in operating:
-                output += f"| {item} | {value} |\n"
+            if has_comparative_cf:
+                output += "| **Operating Activities** | | |\n"
+                for item, curr, prior in operating:
+                    output += f"| {item} | {curr} | {prior} |\n"
+            else:
+                output += "| **Operating Activities** | |\n"
+                for item, value in operating:
+                    output += f"| {item} | {value} |\n"
 
         if investing:
-            output += "| **Investing Activities** | |\n"
-            for item, value in investing:
-                output += f"| {item} | {value} |\n"
+            if has_comparative_cf:
+                output += "| **Investing Activities** | | |\n"
+                for item, curr, prior in investing:
+                    output += f"| {item} | {curr} | {prior} |\n"
+            else:
+                output += "| **Investing Activities** | |\n"
+                for item, value in investing:
+                    output += f"| {item} | {value} |\n"
 
         if financing:
-            output += "| **Financing Activities** | |\n"
-            for item, value in financing:
-                output += f"| {item} | {value} |\n"
+            if has_comparative_cf:
+                output += "| **Financing Activities** | | |\n"
+                for item, curr, prior in financing:
+                    output += f"| {item} | {curr} | {prior} |\n"
+            else:
+                output += "| **Financing Activities** | |\n"
+                for item, value in financing:
+                    output += f"| {item} | {value} |\n"
 
         if other:
-            output += "| **Other** | |\n"
-            for item, value in other:
-                output += f"| {item} | {value} |\n"
+            if has_comparative_cf:
+                output += "| **Other** | | |\n"
+                for item, curr, prior in other:
+                    output += f"| {item} | {curr} | {prior} |\n"
+            else:
+                output += "| **Other** | |\n"
+                for item, value in other:
+                    output += f"| {item} | {value} |\n"
     else:
         output += "*No cash flow statement data available*\n"
 
