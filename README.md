@@ -1,6 +1,8 @@
 # Financial Research Agent
 
-A comprehensive AI-powered financial research system that produces investment-grade reports with SEC EDGAR integration.
+A comprehensive AI-powered financial research system that produces investment-grade reports with SEC EDGAR integration. 
+
+At this stage though it is very much still in development stage and is still incomplete, and in any case is being used to investigate the technologies used rather than to develop an operational tool! So please do not use for anything serious!
 
 **Based on:** [OpenAI Agents SDK Financial Research Example](https://github.com/openai/openai-agents-python/tree/main/examples/financial_research_agent)
 
@@ -71,6 +73,8 @@ Analyze Apple's most recent quarterly performance
 **License:** MIT License
 **Copyright:** 2025 Stephen Parton
 See [LICENSE](LICENSE) for full license text.
+
+As stated more fully in the license file: THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED
 
 ### Dependencies
 
