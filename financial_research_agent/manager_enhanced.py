@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import time
 from collections.abc import Sequence
 from datetime import datetime
@@ -178,19 +179,9 @@ class EnhancedFinancialResearchManager:
 
                 self.printer.end()
 
-            # Print to stdout
-            print("\n\n=====COMPREHENSIVE RESEARCH REPORT=====\n\n")
-            print(f"Executive Summary:\n{report.executive_summary}\n")
-            print(f"\n{report.markdown_report}")
-            print("\n\n=====KEY TAKEAWAYS=====\n\n")
-            for i, takeaway in enumerate(report.key_takeaways, 1):
-                print(f"{i}. {takeaway}")
-            print("\n\n=====FOLLOW UP QUESTIONS=====\n\n")
-            for i, question in enumerate(report.follow_up_questions, 1):
-                print(f"{i}. {question}")
-            print("\n\n=====VERIFICATION=====\n\n")
-            print(verification)
-            print(f"\n\nOutputs saved to: {self.session_dir.absolute()}")
+            # All reports saved to files - just show completion message
+            self.console.print(f"\n✅ [green bold]Research complete![/green bold]")
+            self.console.print(f"📁 [bold]All reports saved to:[/bold] [cyan]{self.session_dir.absolute()}[/cyan]\n")
 
         finally:
             # Cleanup EDGAR server
@@ -244,6 +235,42 @@ class EnhancedFinancialResearchManager:
             return
         output_path = self.session_dir / filename
         output_path.write_text(content, encoding="utf-8")
+
+    def _copy_xbrl_audit_files(self, company_name: str) -> None:
+        """Copy raw XBRL CSV files from debug_edgar to current output directory for audit trail."""
+        if self.session_dir is None:
+            return
+
+        try:
+            # Get ticker from company name
+            ticker_mapping = {
+                "apple": "AAPL",
+                "microsoft": "MSFT",
+                "tesla": "TSLA",
+                "amazon": "AMZN",
+                "google": "GOOGL",
+                "alphabet": "GOOGL",
+                "meta": "META",
+                "facebook": "META",
+                "nvidia": "NVDA",
+            }
+            company_key = company_name.lower().split()[0] if company_name else ""
+            ticker = ticker_mapping.get(company_key, "UNKNOWN")
+
+            # Source directory
+            debug_dir = Path("financial_research_agent/output/debug_edgar")
+            if not debug_dir.exists():
+                return
+
+            # Find and copy XBRL CSV files for this ticker
+            csv_files = list(debug_dir.glob(f"xbrl_raw_*_{ticker}_*.csv"))
+            if csv_files:
+                for csv_file in csv_files:
+                    dest_file = self.session_dir / csv_file.name
+                    shutil.copy2(csv_file, dest_file)
+                    # Silently copy - file list shown at end
+        except Exception as e:
+            self.console.print(f"[yellow]Warning: Could not copy XBRL audit files: {e}[/yellow]")
 
     async def _plan_searches(self, query: str) -> FinancialSearchPlan:
         self.printer.update_item("planning", "Planning searches...")
@@ -392,9 +419,8 @@ class EnhancedFinancialResearchManager:
                     self.edgar_server,
                     company_name
                 )
-                self.console.print(f"[green]Successfully extracted {len(statements_data['balance_sheet'])} balance sheet items[/green]")
-                self.console.print(f"[green]Successfully extracted {len(statements_data['income_statement'])} income statement items[/green]")
-                self.console.print(f"[green]Successfully extracted {len(statements_data['cash_flow_statement'])} cash flow items[/green]")
+                # Successfully extracted - logged to file
+                pass
             except Exception as e:
                 self.console.print(f"[yellow]Warning: Deterministic extraction failed: {e}[/yellow]")
                 import traceback
@@ -456,6 +482,9 @@ Use get_company_facts to get ALL available XBRL data."""
             metrics_content = format_financial_metrics(metrics, company_name)
             self._save_output("04_financial_metrics.md", metrics_content)
 
+            # Copy raw XBRL CSV files to output folder for audit trail
+            self._copy_xbrl_audit_files(company_name)
+
             self.printer.mark_item_done("metrics")
             return metrics
 
@@ -471,9 +500,12 @@ Use get_company_facts to get ALL available XBRL data."""
             else:
                 self.console.print(f"[yellow]Warning: Financial metrics gathering failed: {error_msg}[/yellow]")
 
-            # Debug: Print full traceback
-            self.console.print(f"[dim]Full error details:[/dim]")
-            self.console.print(f"[dim]{traceback.format_exc()}[/dim]")
+            # Save error details to file
+            if self.session_dir:
+                error_file = self.session_dir / "error_log.txt"
+                with open(error_file, 'a') as f:
+                    f.write(f"\n\n=== Financial Metrics Error ({datetime.now().isoformat()}) ===\n")
+                    f.write(traceback.format_exc())
 
             self.printer.update_item("metrics", "Financial metrics unavailable", is_done=True)
             return None
@@ -559,9 +591,12 @@ Use get_company_facts to get ALL available XBRL data."""
         except Exception as e:
             import traceback
             self.console.print(f"[yellow]Warning: Specialist analyses failed: {e}[/yellow]")
-            # Debug: Print full traceback
-            self.console.print(f"[dim]Full error details:[/dim]")
-            self.console.print(f"[dim]{traceback.format_exc()}[/dim]")
+            # Save error details to file
+            if self.session_dir:
+                error_file = self.session_dir / "error_log.txt"
+                with open(error_file, 'a') as f:
+                    f.write(f"\n\n=== Specialist Analyses Error ({datetime.now().isoformat()}) ===\n")
+                    f.write(traceback.format_exc())
             self.printer.update_item("specialist_analysis", "Specialist analyses unavailable", is_done=True)
 
     async def _write_report(

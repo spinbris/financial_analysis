@@ -97,16 +97,37 @@ See [ATTRIBUTION.md](financial_research_agent/docs/ATTRIBUTION.md) for complete 
 
 ## Output
 
-Reports are saved to timestamped directories:
+Reports are saved to timestamped directories with minimal terminal output:
+
+```
+✅ Research complete!
+📁 All reports saved to: financial_research_agent/output/YYYYMMDD_HHMMSS/
+```
+
+**Output Structure:**
 ```
 financial_research_agent/output/YYYYMMDD_HHMMSS/
-├── 00_query.md                      # Your query
-├── 01_search_plan.md                # Search strategy
-├── 02_search_results.md             # Web search results
-├── 02_edgar_filings.md              # SEC filing data
-├── 03_comprehensive_report.md       # Main 3-5 page report
-└── 04_verification.md               # Quality check
+├── 00_query.md                               # Your query
+├── 01_search_plan.md                         # Search strategy
+├── 02_search_results.md                      # Web search results
+├── 02_edgar_filings.md                       # SEC filing data
+├── 03_financial_statements.md                # Balance Sheet, Income, Cash Flow (XBRL order)
+├── 04_financial_metrics.md                   # Calculated financial ratios
+├── 05_financial_analysis.md                  # 800-1200 word specialist analysis
+├── 06_risk_analysis.md                       # 800-1200 word risk assessment
+├── 07_comprehensive_report.md                # Main 3-5 page synthesized report
+├── 08_verification.md                        # Quality check
+├── xbrl_raw_balance_sheet_TICKER_DATE.csv    # Raw XBRL audit trail
+├── xbrl_raw_income_statement_TICKER_DATE.csv # Raw XBRL audit trail
+├── xbrl_raw_cashflow_TICKER_DATE.csv         # Raw XBRL audit trail
+└── error_log.txt                             # Error details (if any)
 ```
+
+**Key Features:**
+- **SEC XBRL Presentation Order**: Financial statements match official 10-Q/10-K structure
+- **Audit Trail**: Raw XBRL CSV files with all metadata (concept, label, level, abstract, weight)
+- **Comparative Periods**: Current vs. Prior period for all line items
+- **Correct Totals**: Subtotals appear in proper hierarchical positions and add up correctly
 
 ## Customization
 

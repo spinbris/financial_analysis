@@ -58,6 +58,7 @@ async def extract_financial_data_deterministic(
         "meta": "META",
         "facebook": "META",
         "nvidia": "NVDA",
+        "nvda": "NVDA",
     }
 
     company_key = company_name.lower().split()[0]
@@ -86,18 +87,30 @@ async def extract_financial_data_deterministic(
     except Exception as e:
         raise RuntimeError(f"Failed to extract statements from financials: {e}")
 
-    # Save debug info
+    # Save raw XBRL DataFrames as CSV for audit trail (will be copied to output folder later)
     debug_dir = Path("financial_research_agent/output/debug_edgar")
     debug_dir.mkdir(parents=True, exist_ok=True)
 
+    # Export raw XBRL data to CSV for verification and audit trail
+    filing_date_str = str(filing.filing_date).replace("-", "")
+    bs_df.to_csv(debug_dir / f"xbrl_raw_balance_sheet_{ticker}_{filing_date_str}.csv", index=False)
+    is_df.to_csv(debug_dir / f"xbrl_raw_income_statement_{ticker}_{filing_date_str}.csv", index=False)
+    cf_df.to_csv(debug_dir / f"xbrl_raw_cashflow_{ticker}_{filing_date_str}.csv", index=False)
+
+    # Save extraction summary
     debug_file = debug_dir / f"edgartools_extraction_{ticker}.txt"
     with open(debug_file, "w") as f:
         f.write(f"Ticker: {ticker}\n")
         f.write(f"Filing: {filing.form} from {filing.filing_date}\n")
+        f.write(f"Period: {bs_df.columns[2]} (current) vs {bs_df.columns[3]} (prior)\n")
         f.write(f"Balance Sheet rows: {len(bs_df)}\n")
         f.write(f"Income Statement rows: {len(is_df)}\n")
         f.write(f"Cash Flow rows: {len(cf_df)}\n")
         f.write(f"Total line items: {len(bs_df) + len(is_df) + len(cf_df)}\n\n")
+        f.write(f"Raw XBRL CSV files saved for audit trail:\n")
+        f.write(f"  - xbrl_raw_balance_sheet_{ticker}_{filing_date_str}.csv\n")
+        f.write(f"  - xbrl_raw_income_statement_{ticker}_{filing_date_str}.csv\n")
+        f.write(f"  - xbrl_raw_cashflow_{ticker}_{filing_date_str}.csv\n\n")
         f.write(f"Balance Sheet columns: {list(bs_df.columns)}\n\n")
         f.write(f"Balance Sheet preview:\n{bs_df.head(20).to_string()}\n")
 
