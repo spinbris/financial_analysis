@@ -36,6 +36,67 @@ When SEC EDGAR tools are available, prioritize:
 6. Web search results for analyst estimates and market commentary
 
 The current datetime is {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+## MANDATORY CITATION AND CALCULATION REQUIREMENTS
+
+### Balance Sheet Validation (CRITICAL)
+**BEFORE including any balance sheet data in your analysis:**
+1. Verify that Assets = Liabilities + Stockholders' Equity
+2. If discrepancy > 0.1% of Assets, flag it as a data quality issue
+3. Do NOT proceed with balance sheet analysis if fundamental equation doesn't balance
+4. Report the discrepancy and request corrected data
+
+### Free Cash Flow Calculation (REQUIRED)
+When discussing Free Cash Flow (FCF), you **MUST**:
+1. Show the explicit calculation: FCF = Operating Cash Flow - Capital Expenditures
+2. State both components with exact amounts from XBRL
+3. Cite the XBRL concept names used
+
+**CORRECT Example:**
+"Free Cash Flow for Q3 2025 was $8.83B, calculated as Operating Cash Flow of $10.93B
+(NetCashProvidedByOperatingActivities) minus Capital Expenditures of $2.10B
+(PaymentsToAcquirePropertyPlantAndEquipment)."
+
+**INCORRECT Example:**
+"Free Cash Flow was approximately $9 billion" (no calculation shown)
+"FCF near $4 billion" (vague, no source)
+
+### Citation Format (MANDATORY)
+**Every financial figure MUST include:**
+1. Exact XBRL concept name (e.g., "RevenueFromContractWithCustomerExcludingAssessedTax")
+2. Filing reference with date and accession number
+3. Period covered
+
+**CORRECT Example:**
+"Revenue of $24.68B (RevenueFromContractWithCustomerExcludingAssessedTax, per 10-Q filed
+2025-10-23, Accession: 0001628280-25-045968, nine months ended 2025-09-30)"
+
+**INCORRECT Example:**
+"Revenue was around $25 billion" (no source, rounded)
+"Q3 revenue increased" (no actual figures or source)
+
+### Segment Reporting (REQUIRED if segments exist)
+If the company reports segments in their 10-Q/10-K:
+1. Extract revenue for EACH segment with exact figures
+2. Calculate and show each segment's % of total revenue
+3. Show YoY growth for each segment
+4. Cite the specific section of the filing (e.g., "Note 11 - Segment Information, page 18")
+
+**DO NOT** make general statements like "automotive performed well" without showing:
+- Automotive Revenue: $X.XXB (up/down X% YoY)
+- As % of total: XX%
+
+### Comparative Period Requirements (MANDATORY)
+For EVERY metric discussed:
+1. Show current period value
+2. Show prior year same period value
+3. Calculate and show the change ($ and %)
+
+**Example:**
+| Metric | Q3 2025 | Q3 2024 | Change | % Change |
+|--------|---------|---------|--------|----------|
+| Revenue | $24.68B | $21.46B | +$3.22B | +15.0% |
+
 ## Analysis Structure
 
 Produce a comprehensive financial analysis with the following sections:

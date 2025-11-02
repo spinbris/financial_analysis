@@ -172,6 +172,21 @@ class EnhancedFinancialResearchManager:
                     await self._gather_specialist_analyses(query, search_results)
 
                 report = await self._write_report(query, search_results, edgar_results, metrics_results)
+
+                # Run deterministic validation checks before LLM verification
+                validation_errors = self._validate_financial_statements()
+                if validation_errors:
+                    error_msg = "\n\n".join(validation_errors)
+                    self.console.print(f"\n[red bold]⚠️  Data Quality Issues Detected:[/red bold]")
+                    self.console.print(f"[yellow]{error_msg}[/yellow]\n")
+
+                    # Append to error log
+                    if self.session_dir:
+                        error_file = self.session_dir / "error_log.txt"
+                        with open(error_file, 'a') as f:
+                            f.write(f"\n\n=== Validation Errors ({datetime.now().isoformat()}) ===\n")
+                            f.write(error_msg + "\n")
+
                 verification = await self._verify_report(report)
 
                 final_summary = f"Report complete\n\n{report.executive_summary}"
@@ -702,6 +717,68 @@ Use get_company_facts to get ALL available XBRL data."""
         self._save_output("07_comprehensive_report.md", report_content)
 
         return report
+
+    def _validate_financial_statements(self) -> list[str]:
+        """
+        Run deterministic checks on generated financial statements.
+        Returns list of validation errors found.
+
+        This function performs arithmetic validation that should never fail
+        if XBRL data is correctly extracted. The fundamental accounting equation
+        must always hold: Assets = Liabilities + Stockholders' Equity
+        """
+        errors = []
+
+        # Check if financial statements file exists
+        if self.session_dir is None:
+            return errors
+
+        statements_file = self.session_dir / "03_financial_statements.md"
+        if not statements_file.exists():
+            return errors  # No financial statements to validate
+
+        try:
+            # Read the file
+            content = statements_file.read_text(encoding='utf-8')
+
+            # Extract balance sheet numbers using regex
+            # Looking for lines like: | Assets | $133,735,000,000 |
+            import re
+
+            # Match patterns for the key balance sheet line items
+            assets_match = re.search(r'\|\s*Assets\s*\|\s*\$([0-9,]+)', content)
+            liabilities_match = re.search(r'\|\s*Liabilities\s*\|\s*\$([0-9,]+)', content)
+            equity_match = re.search(r'\|\s*StockholdersEquity\s*\|\s*\$([0-9,]+)', content)
+
+            if assets_match and liabilities_match and equity_match:
+                # Parse the numbers (remove commas and convert to float)
+                assets = float(assets_match.group(1).replace(',', ''))
+                liabilities = float(liabilities_match.group(1).replace(',', ''))
+                equity = float(equity_match.group(1).replace(',', ''))
+
+                # Calculate total and difference
+                total = liabilities + equity
+                diff = abs(assets - total)
+
+                # Set tolerance at 0.1% of total assets
+                tolerance = assets * 0.001
+
+                if diff > tolerance:
+                    # Format numbers with commas for readability
+                    errors.append(
+                        f"⚠️  BALANCE SHEET ARITHMETIC ERROR:\n"
+                        f"   Assets: ${assets:,.0f}\n"
+                        f"   Liabilities + Equity: ${total:,.0f}\n"
+                        f"   Difference: ${diff:,.0f} ({diff/assets*100:.2f}% of Assets)\n"
+                        f"   This exceeds tolerance of ${tolerance:,.0f} (0.1% of Assets)\n"
+                        f"   → The fundamental accounting equation (Assets = L + E) does not balance!"
+                    )
+        except Exception as e:
+            # Don't fail the whole process if validation has an issue
+            # Just log it for debugging
+            errors.append(f"⚠️  Error during balance sheet validation: {str(e)}")
+
+        return errors
 
     async def _verify_report(self, report: ComprehensiveFinancialReport) -> VerificationResult:
         self.printer.update_item("verifying", "Verifying comprehensive report...")
