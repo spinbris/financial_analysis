@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from agents import Agent
 from financial_research_agent.config import AgentConfig
 from agents.agent_output import AgentOutputSchema
+from financial_research_agent.tools.mcp_tools_guide import get_available_edgar_tools
 
 # Financial Metrics agent specializes in extracting financial statements
 # and calculating comprehensive financial ratios for liquidity, solvency,
@@ -18,50 +19,76 @@ for liquidity, solvency, profitability, and efficiency analysis.
 
 ## Available SEC EDGAR Tools
 
-You have access to SEC EDGAR MCP tools including:
-- **get_financial_statements** - PRIMARY TOOL: Extract complete structured financial statements with ALL line items
-- get_company_facts - Retrieve XBRL company facts with exact precision
+You have access to a comprehensive set of SEC EDGAR MCP tools. If you need detailed documentation
+on what tools are available or how to use them, call `get_available_edgar_tools()`.
+
+Key tools include:
+- **get_company_facts** - PRIMARY TOOL: Retrieve all XBRL company facts with exact precision (100+ line items)
 - get_recent_filings - Find latest 10-K and 10-Q filings
-- search_10k - Search annual reports
+- search_10k - Search annual reports for qualitative information
 - search_10q - Search quarterly reports
+- get_filing_content - Get complete filing text
+
+**IMPORTANT:** Use get_company_facts WITHOUT a concept parameter to get ALL financial data at once.
 
 ## Data Extraction Process - USE MCP TOOLS DIRECTLY
 
-**CRITICAL: You MUST use the get_financial_statements tool to extract data, NOT manual parsing.**
+**CRITICAL: You MUST use the available MCP tools (especially get_company_facts) to extract data, NOT manual parsing.**
 
 1. **Identify the Company**
    - Look up CIK number if needed
    - Determine most recent quarterly (10-Q) filing (e.g., Q3 2025)
    - Determine prior period filing for comparison (e.g., Q2 2025 or Q3 2024)
 
-2. **Extract Financial Statements Using get_financial_statements Tool**
+2. **Extract Financial Statements Using Available MCP Tools**
 
    **STEP 1: Get Current Period Statements**
 
-   Use the `get_financial_statements` tool for the most recent filing:
+   Use the available MCP tools (primarily `get_company_facts`) to extract financial data:
    ```
-   get_financial_statements(
+   get_company_facts(
      cik="0000320193",  # Apple's CIK
-     filing_type="10-Q",  # or "10-K" for annual
-     accession_number="0000320193-25-000073"  # Most recent filing
+     concept="Assets"  # Or other XBRL concept
    )
    ```
 
-   This will return a structured JSON with ALL line items from:
+   Or use other available tools to retrieve complete statements for a filing.
+
+   The tools will return structured data with ALL line items from:
    - Balance Sheet (all assets, liabilities, equity with exact XBRL tags)
    - Income Statement (all revenue, expense, income items)
    - Cash Flow Statement (all operating, investing, financing activities)
 
+   **IMPORTANT: Data Extraction from Tool Output**
+
+   The MCP tool may return data in a nested format with metadata like:
+   ```
+   {
+     "data": {
+       "Assets": {"value": 133735000000.0, "raw_value": "133,735", ...},
+       "Liabilities": {"value": 53019000000.0, ...}
+     },
+     "source": "xbrl_concepts_dynamic"
+   }
+   ```
+
+   **You MUST extract just the numeric values:**
+   - If the tool returns nested objects with "value" fields, extract: `item["value"]`
+   - If the tool returns simple numbers, use them directly
+   - Result should be flat key-value pairs: `{"Assets": 133735000000.0, "Liabilities": 53019000000.0}`
+
+   **Example transformation:**
+   ```python
+   # Tool output (nested):
+   {"data": {"Assets": {"value": 133735000000}, "Liabilities": {"value": 53019000000}}}
+
+   # Extract to flat dictionary:
+   {"Assets": 133735000000, "Liabilities": 53019000000}
+   ```
+
    **STEP 2: Get Prior Period Statements for Comparison**
 
-   Use the `get_financial_statements` tool again for the prior period:
-   ```
-   get_financial_statements(
-     cik="0000320193",
-     filing_type="10-Q",
-     accession_number="0000320193-25-000057"  # Prior quarter filing
-   )
-   ```
+   Use the same MCP tools for the prior period filing to get comparative data.
 
    **STEP 3: Combine the Data with _Current and _Prior Suffixes**
 
@@ -83,11 +110,11 @@ You have access to SEC EDGAR MCP tools including:
    ```
 
    **IMPORTANT NOTES:**
-   1. The get_financial_statements tool returns ALL line items automatically - you don't need to manually extract
+   1. The MCP tools return structured data - extract ALL available line items
    2. Preserve the exact XBRL tag names from the tool output
    3. Add `current_period_date` and `prior_period_date` keys to track the reporting periods
    4. If a line item exists in one period but not the other, still include it (value will be null for missing period)
-   5. The tool returns exact precision values - do not round
+   5. The tools return exact precision values - do not round
 
 3. **Calculate Financial Ratios**
 
@@ -172,13 +199,14 @@ For query "Calculate financial metrics for Apple":
 
 1. Look up Apple's CIK (0000320193)
 2. Find most recent 10-Q filings:
-   - Current: 0000320193-25-000073 (Q3 FY2025, ending 2025-06-28)
-   - Prior: 0000320193-25-000057 (Q2 FY2025, ending 2025-03-29)
-3. **Use get_financial_statements tool for current period:**
-   - Call: `get_financial_statements(cik="0000320193", filing_type="10-Q", accession_number="0000320193-25-000073")`
+   - Current: Q3 FY2025 (ending 2025-06-28)
+   - Prior: Q2 FY2025 (ending 2025-03-29)
+3. **Use available MCP tools to extract current period data:**
+   - Use `get_company_facts` or other tools to retrieve financial statement data
+   - Extract balance sheet, income statement, and cash flow data
    - Store result as `current_statements`
-4. **Use get_financial_statements tool for prior period:**
-   - Call: `get_financial_statements(cik="0000320193", filing_type="10-Q", accession_number="0000320193-25-000057")`
+4. **Use available MCP tools for prior period:**
+   - Retrieve prior period data using the same approach
    - Store result as `prior_statements`
 5. **Combine the statements:**
    - For each line item in balance_sheet, income_statement, cash_flow_statement:
@@ -189,7 +217,7 @@ For query "Calculate financial metrics for Apple":
 7. Compile all data and ratios into structured output
 8. Write executive summary assessing financial health
 
-Remember: The get_financial_statements tool extracts ALL XBRL data automatically with exact precision. You don't need to manually parse or extract specific fields - just use the tool twice (current + prior) and combine the results.
+Remember: The MCP tools provide structured XBRL data with exact precision. Extract the values you need and flatten any nested structures as shown in the examples above.
 
 ## IMPORTANT: JSON Output Format
 When generating your response, ensure all string fields use proper JSON formatting:
@@ -310,8 +338,10 @@ class FinancialMetrics(BaseModel):
     }
     """
 
-    cash_flow_statement: dict[str, Any]
+    cash_flow_statement: dict[str, Any] | str
     """Complete cash flow statement with all line items from XBRL, including comparative period.
+    If cash flow data is unavailable, may be a string like "Not available in this filing".
+
     Format: {
         "line_item_name_Current": value,
         "line_item_name_Prior": value,
@@ -335,4 +365,5 @@ financial_metrics_agent = Agent(
     instructions=FINANCIAL_METRICS_PROMPT,
     model=AgentConfig.METRICS_MODEL,
     output_type=AgentOutputSchema(FinancialMetrics, strict_json_schema=False),
+    tools=[get_available_edgar_tools],  # Add MCP tools documentation
 )

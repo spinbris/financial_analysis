@@ -183,8 +183,11 @@ def format_financial_statements(
 
     Args:
         balance_sheet: Balance sheet line items (may include _Current and _Prior suffixed keys)
+                      Can be either flat dict or {'line_items': {...}, 'xbrl_concepts': {...}}
         income_statement: Income statement line items (may include _Current and _Prior suffixed keys)
+                         Can be either flat dict or {'line_items': {...}, 'xbrl_concepts': {...}}
         cash_flow_statement: Cash flow statement line items (may include _Current and _Prior suffixed keys)
+                            Can be either flat dict or {'line_items': {...}, 'xbrl_concepts': {...}}
         company_name: Company name
         period: Reporting period
         filing_reference: Filing reference string
@@ -192,6 +195,26 @@ def format_financial_statements(
     Returns:
         Formatted markdown string with tables
     """
+    # Handle new structure with line_items and xbrl_concepts
+    # If the dict has 'line_items' key, extract it; otherwise use the dict as-is
+    bs_items = balance_sheet.get('line_items', balance_sheet) if isinstance(balance_sheet, dict) else balance_sheet
+    is_items = income_statement.get('line_items', income_statement) if isinstance(income_statement, dict) else income_statement
+    cf_items = cash_flow_statement.get('line_items', cash_flow_statement) if isinstance(cash_flow_statement, dict) else cash_flow_statement
+
+    # Get XBRL concepts if available (for future use in citations)
+    bs_concepts = balance_sheet.get('xbrl_concepts', {}) if isinstance(balance_sheet, dict) and 'xbrl_concepts' in balance_sheet else {}
+    is_concepts = income_statement.get('xbrl_concepts', {}) if isinstance(income_statement, dict) and 'xbrl_concepts' in income_statement else {}
+    cf_concepts = cash_flow_statement.get('xbrl_concepts', {}) if isinstance(cash_flow_statement, dict) and 'xbrl_concepts' in cash_flow_statement else {}
+
+    # Get actual period dates if available (from new structure)
+    bs_dates = balance_sheet.get('period_dates', {}) if isinstance(balance_sheet, dict) and 'period_dates' in balance_sheet else {}
+    is_dates = income_statement.get('period_dates', {}) if isinstance(income_statement, dict) and 'period_dates' in income_statement else {}
+    cf_dates = cash_flow_statement.get('period_dates', {}) if isinstance(cash_flow_statement, dict) and 'period_dates' in cash_flow_statement else {}
+
+    # Use the extracted line_items for processing
+    balance_sheet = bs_items
+    income_statement = is_items
+    cash_flow_statement = cf_items
     output = f"# Financial Statements\n\n"
     output += f"**Company:** {company_name}  \n"
     output += f"**Period:** {period}  \n"
@@ -201,9 +224,9 @@ def format_financial_statements(
     # Check if we have comparative period data (keys ending with _Current and _Prior)
     has_comparative = any(k.endswith("_Current") or k.endswith("_Prior") for k in balance_sheet.keys())
 
-    # Extract period dates if available
-    current_date = balance_sheet.get("current_period_date", "Current")
-    prior_date = balance_sheet.get("prior_period_date", "Prior")
+    # Extract period dates - prefer actual dates from period_dates, fallback to old keys
+    current_date = bs_dates.get('current', balance_sheet.get("current_period_date", "Current"))
+    prior_date = bs_dates.get('prior', balance_sheet.get("prior_period_date", "Prior"))
 
     # Balance Sheet
     output += "## Consolidated Balance Sheet\n"
@@ -263,8 +286,8 @@ def format_financial_statements(
     output += f"*Period: {period} (from XBRL, exact values)*\n\n"
 
     has_comparative_income = any(k.endswith("_Current") or k.endswith("_Prior") for k in income_statement.keys())
-    current_date_income = income_statement.get("current_period_date", "Current")
-    prior_date_income = income_statement.get("prior_period_date", "Prior")
+    current_date_income = is_dates.get('current', income_statement.get("current_period_date", "Current"))
+    prior_date_income = is_dates.get('prior', income_statement.get("prior_period_date", "Prior"))
 
     if income_statement:
         if has_comparative_income:
@@ -316,8 +339,8 @@ def format_financial_statements(
     output += "*Items displayed in SEC XBRL presentation order (totals in correct hierarchy)*\n\n"
 
     has_comparative_cf = any(k.endswith("_Current") or k.endswith("_Prior") for k in cash_flow_statement.keys())
-    current_date_cf = cash_flow_statement.get("current_period_date", "Current")
-    prior_date_cf = cash_flow_statement.get("prior_period_date", "Prior")
+    current_date_cf = cf_dates.get('current', cash_flow_statement.get("current_period_date", "Current"))
+    prior_date_cf = cf_dates.get('prior', cash_flow_statement.get("prior_period_date", "Prior"))
 
     if cash_flow_statement:
         if has_comparative_cf:
@@ -371,6 +394,117 @@ def format_financial_statements(
     return output
 
 
+def _calculate_ratio_from_data(balance_sheet: dict, income_statement: dict, cash_flow: dict,
+                                ratio_name: str, period_suffix: str) -> float | None:
+    """Calculate a specific ratio from raw financial data for a given period.
+
+    Args:
+        balance_sheet: Balance sheet data dict
+        income_statement: Income statement data dict
+        cash_flow: Cash flow data dict
+        ratio_name: Name of the ratio to calculate
+        period_suffix: Either '_Current' or '_Prior'
+
+    Returns:
+        Calculated ratio value or None if cannot be calculated
+    """
+    # Extract line_items if using new structure, otherwise use dict directly
+    bs = balance_sheet.get('line_items', balance_sheet) if isinstance(balance_sheet, dict) and 'line_items' in balance_sheet else balance_sheet
+    inc = income_statement.get('line_items', income_statement) if isinstance(income_statement, dict) and 'line_items' in income_statement else income_statement
+    cf = cash_flow.get('line_items', cash_flow) if isinstance(cash_flow, dict) and 'line_items' in cash_flow else cash_flow
+
+    # Helper to find value by searching for key patterns
+    def find_value(data: dict, patterns: list[str], suffix: str) -> float | None:
+        for pattern in patterns:
+            # Try exact match with suffix
+            key_with_suffix = f"{pattern}{suffix}"
+            if key_with_suffix in data:
+                val = data[key_with_suffix]
+                if isinstance(val, (int, float)) and val != 0:
+                    return float(val)
+
+            # Try case-insensitive search
+            for key in data.keys():
+                if pattern.lower() in key.lower() and key.endswith(suffix):
+                    val = data[key]
+                    if isinstance(val, (int, float)) and val != 0:
+                        return float(val)
+        return None
+
+    try:
+        if ratio_name == 'current_ratio':
+            current_assets = find_value(bs, ['Assets Current', 'Current Assets', 'AssetsCurrent'], period_suffix)
+            current_liabilities = find_value(bs, ['Liabilities Current', 'Current Liabilities', 'LiabilitiesCurrent'], period_suffix)
+            if current_assets and current_liabilities:
+                return current_assets / current_liabilities
+
+        elif ratio_name == 'quick_ratio':
+            current_assets = find_value(bs, ['Assets Current', 'Current Assets', 'AssetsCurrent'], period_suffix)
+            inventory = find_value(bs, ['Inventory', 'InventoryNet'], period_suffix) or 0
+            current_liabilities = find_value(bs, ['Liabilities Current', 'Current Liabilities', 'LiabilitiesCurrent'], period_suffix)
+            if current_assets and current_liabilities:
+                return (current_assets - inventory) / current_liabilities
+
+        elif ratio_name == 'cash_ratio':
+            cash = find_value(bs, ['Cash and cash equivalents', 'Cash and Cash Equivalents', 'CashAndCashEquivalents'], period_suffix)
+            current_liabilities = find_value(bs, ['Liabilities Current', 'Current Liabilities', 'LiabilitiesCurrent'], period_suffix)
+            if cash and current_liabilities:
+                return cash / current_liabilities
+
+        elif ratio_name == 'debt_to_equity':
+            total_debt = find_value(bs, ['Long-term debt', 'Long-Term Debt', 'LongTermDebt', 'Total debt', 'Debt'], period_suffix)
+            equity = find_value(bs, ["Stockholders' equity", 'Stockholders Equity', 'StockholdersEquity', 'Total equity'], period_suffix)
+            if total_debt and equity:
+                return total_debt / equity
+
+        elif ratio_name == 'debt_to_assets':
+            total_debt = find_value(bs, ['Long-term debt', 'Long-Term Debt', 'LongTermDebt', 'Total debt', 'Debt'], period_suffix)
+            total_assets = find_value(bs, ['Total assets', 'Assets', 'Total Assets'], period_suffix)
+            if total_debt and total_assets:
+                return total_debt / total_assets
+
+        elif ratio_name == 'equity_ratio':
+            equity = find_value(bs, ["Stockholders' equity", 'Stockholders Equity', 'StockholdersEquity', 'Total equity'], period_suffix)
+            total_assets = find_value(bs, ['Total assets', 'Assets', 'Total Assets'], period_suffix)
+            if equity and total_assets:
+                return equity / total_assets
+
+        elif ratio_name == 'gross_profit_margin':
+            gross_profit = find_value(inc, ['Gross profit', 'Gross Profit', 'GrossProfit'], period_suffix)
+            revenue = find_value(inc, ['Revenue', 'Total revenue', 'Revenues'], period_suffix)
+            if gross_profit and revenue:
+                return gross_profit / revenue
+
+        elif ratio_name == 'operating_margin':
+            operating_income = find_value(inc, ['Operating income', 'Operating Income', 'OperatingIncome'], period_suffix)
+            revenue = find_value(inc, ['Revenue', 'Total revenue', 'Revenues'], period_suffix)
+            if operating_income and revenue:
+                return operating_income / revenue
+
+        elif ratio_name == 'net_profit_margin':
+            net_income = find_value(inc, ['Net income', 'Net Income', 'NetIncome'], period_suffix)
+            revenue = find_value(inc, ['Revenue', 'Total revenue', 'Revenues'], period_suffix)
+            if net_income and revenue:
+                return net_income / revenue
+
+        elif ratio_name == 'return_on_assets':
+            net_income = find_value(inc, ['Net income', 'Net Income', 'NetIncome'], period_suffix)
+            total_assets = find_value(bs, ['Total assets', 'Assets', 'Total Assets'], period_suffix)
+            if net_income and total_assets:
+                return net_income / total_assets
+
+        elif ratio_name == 'return_on_equity':
+            net_income = find_value(inc, ['Net income', 'Net Income', 'NetIncome'], period_suffix)
+            equity = find_value(bs, ["Stockholders' equity", 'Stockholders Equity', 'StockholdersEquity', 'Total equity'], period_suffix)
+            if net_income and equity:
+                return net_income / equity
+
+    except (ZeroDivisionError, TypeError):
+        pass
+
+    return None
+
+
 def format_financial_metrics(metrics: Any, company_name: str) -> str:
     """Format financial metrics and ratios as markdown with tables and analysis.
 
@@ -381,6 +515,24 @@ def format_financial_metrics(metrics: Any, company_name: str) -> str:
     Returns:
         Formatted markdown string with ratio tables and interpretations
     """
+    # Extract period dates from the balance sheet data
+    bs_data = metrics.balance_sheet
+    bs_dates = {}
+    if isinstance(bs_data, dict):
+        # New structure with period_dates
+        if 'period_dates' in bs_data:
+            bs_dates = bs_data['period_dates']
+        # Old structure with explicit date keys
+        elif 'current_period_date' in bs_data:
+            bs_dates = {
+                'current': bs_data.get('current_period_date', 'Current'),
+                'prior': bs_data.get('prior_period_date', 'Prior')
+            }
+
+    current_date = bs_dates.get('current', 'Current')
+    prior_date = bs_dates.get('prior', 'Prior')
+    has_comparative = prior_date != 'Prior' and prior_date is not None
+
     output = f"# Financial Metrics & Ratio Analysis\n\n"
     output += f"**Company:** {company_name}  \n"
     output += f"**Period:** {metrics.period}  \n"
@@ -396,40 +548,76 @@ def format_financial_metrics(metrics: Any, company_name: str) -> str:
     # Liquidity Ratios
     output += "## Liquidity Ratios\n"
     output += "*Ability to meet short-term obligations*\n\n"
-    output += "| Ratio | Value | Interpretation |\n"
-    output += "|-------|-------|----------------|\n"
 
-    output += f"| **Current Ratio** | {format_ratio(metrics.current_ratio)} | "
-    output += f"{get_ratio_interpretation('current_ratio', metrics.current_ratio)} "
-    if metrics.current_ratio and metrics.current_ratio >= 1.0:
-        output += "Healthy - can meet short-term obligations"
-    elif metrics.current_ratio:
-        output += "Below target - potential liquidity concerns"
-    else:
-        output += "Data unavailable"
-    output += " |\n"
+    if has_comparative:
+        # Calculate prior period ratios
+        current_ratio_prior = _calculate_ratio_from_data(metrics.balance_sheet, metrics.income_statement,
+                                                         metrics.cash_flow_statement, 'current_ratio', '_Prior')
+        quick_ratio_prior = _calculate_ratio_from_data(metrics.balance_sheet, metrics.income_statement,
+                                                        metrics.cash_flow_statement, 'quick_ratio', '_Prior')
+        cash_ratio_prior = _calculate_ratio_from_data(metrics.balance_sheet, metrics.income_statement,
+                                                       metrics.cash_flow_statement, 'cash_ratio', '_Prior')
 
-    output += f"| **Quick Ratio** | {format_ratio(metrics.quick_ratio)} | "
-    output += f"{get_ratio_interpretation('quick_ratio', metrics.quick_ratio)} "
-    if metrics.quick_ratio and metrics.quick_ratio >= 1.0:
-        output += "Strong - can meet obligations without selling inventory"
-    elif metrics.quick_ratio and metrics.quick_ratio >= 0.7:
-        output += "Adequate for most industries"
-    elif metrics.quick_ratio:
-        output += "Below target"
-    else:
-        output += "Data unavailable"
-    output += " |\n"
+        output += f"| Ratio | {current_date} | {prior_date} | Change | % Change |\n"
+        output += "|-------|------------|------------|--------|----------|\n"
 
-    output += f"| **Cash Ratio** | {format_ratio(metrics.cash_ratio)} | "
-    output += f"{get_ratio_interpretation('cash_ratio', metrics.cash_ratio)} "
-    if metrics.cash_ratio and metrics.cash_ratio >= 0.2:
-        output += "Adequate cash reserves"
-    elif metrics.cash_ratio:
-        output += "Low cash position"
+        # Current Ratio
+        change = (metrics.current_ratio - current_ratio_prior) if metrics.current_ratio and current_ratio_prior else None
+        pct_change = (change / current_ratio_prior * 100) if change and current_ratio_prior else None
+        trend = "↑" if change and change > 0 else "↓" if change and change < 0 else "→"
+        output += f"| **Current Ratio** | {format_ratio(metrics.current_ratio)} | {format_ratio(current_ratio_prior)} | "
+        output += f"{format_ratio(change) if change else '—'} | "
+        output += f"{format_percentage(pct_change/100) if pct_change else '—'} {trend} |\n"
+
+        # Quick Ratio
+        change = (metrics.quick_ratio - quick_ratio_prior) if metrics.quick_ratio and quick_ratio_prior else None
+        pct_change = (change / quick_ratio_prior * 100) if change and quick_ratio_prior else None
+        trend = "↑" if change and change > 0 else "↓" if change and change < 0 else "→"
+        output += f"| **Quick Ratio** | {format_ratio(metrics.quick_ratio)} | {format_ratio(quick_ratio_prior)} | "
+        output += f"{format_ratio(change) if change else '—'} | "
+        output += f"{format_percentage(pct_change/100) if pct_change else '—'} {trend} |\n"
+
+        # Cash Ratio
+        change = (metrics.cash_ratio - cash_ratio_prior) if metrics.cash_ratio and cash_ratio_prior else None
+        pct_change = (change / cash_ratio_prior * 100) if change and cash_ratio_prior else None
+        trend = "↑" if change and change > 0 else "↓" if change and change < 0 else "→"
+        output += f"| **Cash Ratio** | {format_ratio(metrics.cash_ratio)} | {format_ratio(cash_ratio_prior)} | "
+        output += f"{format_ratio(change) if change else '—'} | "
+        output += f"{format_percentage(pct_change/100) if pct_change else '—'} {trend} |\n"
+
     else:
-        output += "Data unavailable"
-    output += " |\n"
+        # Single period format (fallback)
+        output += "| Ratio | Value | Interpretation |\n"
+        output += "|-------|-------|----------------|\n"
+
+        output += f"| **Current Ratio** | {format_ratio(metrics.current_ratio)} | "
+        if metrics.current_ratio and metrics.current_ratio >= 1.0:
+            output += "✓ Healthy"
+        elif metrics.current_ratio:
+            output += "⚠ Below target"
+        else:
+            output += "Data unavailable"
+        output += " |\n"
+
+        output += f"| **Quick Ratio** | {format_ratio(metrics.quick_ratio)} | "
+        if metrics.quick_ratio and metrics.quick_ratio >= 1.0:
+            output += "✓ Strong"
+        elif metrics.quick_ratio and metrics.quick_ratio >= 0.7:
+            output += "✓ Adequate"
+        elif metrics.quick_ratio:
+            output += "⚠ Below target"
+        else:
+            output += "Data unavailable"
+        output += " |\n"
+
+        output += f"| **Cash Ratio** | {format_ratio(metrics.cash_ratio)} | "
+        if metrics.cash_ratio and metrics.cash_ratio >= 0.2:
+            output += "✓ Adequate"
+        elif metrics.cash_ratio:
+            output += "⚠ Low"
+        else:
+            output += "Data unavailable"
+        output += " |\n"
 
     output += "\n**Formula Reference:**\n"
     output += "- Current Ratio = Current Assets ÷ Current Liabilities\n"
@@ -441,61 +629,84 @@ def format_financial_metrics(metrics: Any, company_name: str) -> str:
     # Solvency Ratios
     output += "## Solvency Ratios\n"
     output += "*Long-term financial stability and debt capacity*\n\n"
-    output += "| Ratio | Value | Interpretation |\n"
-    output += "|-------|-------|----------------|\n"
 
-    output += f"| **Debt-to-Equity** | {format_ratio(metrics.debt_to_equity)} | "
-    output += f"{get_ratio_interpretation('debt_to_equity', metrics.debt_to_equity)} "
-    if metrics.debt_to_equity and metrics.debt_to_equity <= 1.0:
-        output += "Conservative leverage"
-    elif metrics.debt_to_equity and metrics.debt_to_equity <= 2.0:
-        output += "Moderate leverage"
-    elif metrics.debt_to_equity:
-        output += "High leverage"
-    else:
-        output += "Data unavailable"
-    output += " |\n"
+    if has_comparative:
+        # Calculate prior period ratios
+        debt_to_equity_prior = _calculate_ratio_from_data(metrics.balance_sheet, metrics.income_statement,
+                                                          metrics.cash_flow_statement, 'debt_to_equity', '_Prior')
+        debt_to_assets_prior = _calculate_ratio_from_data(metrics.balance_sheet, metrics.income_statement,
+                                                          metrics.cash_flow_statement, 'debt_to_assets', '_Prior')
+        equity_ratio_prior = _calculate_ratio_from_data(metrics.balance_sheet, metrics.income_statement,
+                                                        metrics.cash_flow_statement, 'equity_ratio', '_Prior')
 
-    output += f"| **Debt-to-Assets** | {format_ratio(metrics.debt_to_assets)} | "
-    output += f"{get_ratio_interpretation('debt_to_assets', metrics.debt_to_assets)} "
-    if metrics.debt_to_assets and metrics.debt_to_assets <= 0.3:
-        output += "Very conservative"
-    elif metrics.debt_to_assets and metrics.debt_to_assets <= 0.5:
-        output += "Moderate debt usage"
-    elif metrics.debt_to_assets:
-        output += "High debt relative to assets"
-    else:
-        output += "Data unavailable"
-    output += " |\n"
+        output += f"| Ratio | {current_date} | {prior_date} | Change | % Change |\n"
+        output += "|-------|------------|------------|--------|----------|\n"
 
-    output += f"| **Interest Coverage** | {format_multiplier(metrics.interest_coverage)} | "
-    output += f"{get_ratio_interpretation('interest_coverage', metrics.interest_coverage)} "
-    if metrics.interest_coverage and metrics.interest_coverage >= 5.0:
-        output += "Excellent debt servicing capacity"
-    elif metrics.interest_coverage and metrics.interest_coverage >= 2.5:
-        output += "Adequate coverage"
-    elif metrics.interest_coverage:
-        output += "Potential debt servicing concerns"
-    else:
-        output += "Data unavailable"
-    output += " |\n"
+        # Debt-to-Equity
+        change = (metrics.debt_to_equity - debt_to_equity_prior) if metrics.debt_to_equity and debt_to_equity_prior else None
+        pct_change = (change / debt_to_equity_prior * 100) if change and debt_to_equity_prior else None
+        trend = "↓" if change and change < 0 else "↑" if change and change > 0 else "→"  # Lower is better for debt ratios
+        output += f"| **Debt-to-Equity** | {format_ratio(metrics.debt_to_equity)} | {format_ratio(debt_to_equity_prior)} | "
+        output += f"{format_ratio(change) if change else '—'} | "
+        output += f"{format_percentage(pct_change/100) if pct_change else '—'} {trend} |\n"
 
-    output += f"| **Equity Ratio** | {format_ratio(metrics.equity_ratio)} | "
-    output += f"{get_ratio_interpretation('equity_ratio', metrics.equity_ratio)} "
-    if metrics.equity_ratio and metrics.equity_ratio >= 0.5:
-        output += "Strong equity position"
-    elif metrics.equity_ratio and metrics.equity_ratio >= 0.3:
-        output += "Moderate equity position"
-    elif metrics.equity_ratio:
-        output += "Weak equity position"
+        # Debt-to-Assets
+        change = (metrics.debt_to_assets - debt_to_assets_prior) if metrics.debt_to_assets and debt_to_assets_prior else None
+        pct_change = (change / debt_to_assets_prior * 100) if change and debt_to_assets_prior else None
+        trend = "↓" if change and change < 0 else "↑" if change and change > 0 else "→"
+        output += f"| **Debt-to-Assets** | {format_ratio(metrics.debt_to_assets)} | {format_ratio(debt_to_assets_prior)} | "
+        output += f"{format_ratio(change) if change else '—'} | "
+        output += f"{format_percentage(pct_change/100) if pct_change else '—'} {trend} |\n"
+
+        # Equity Ratio
+        change = (metrics.equity_ratio - equity_ratio_prior) if metrics.equity_ratio and equity_ratio_prior else None
+        pct_change = (change / equity_ratio_prior * 100) if change and equity_ratio_prior else None
+        trend = "↑" if change and change > 0 else "↓" if change and change < 0 else "→"  # Higher is better
+        output += f"| **Equity Ratio** | {format_ratio(metrics.equity_ratio)} | {format_ratio(equity_ratio_prior)} | "
+        output += f"{format_ratio(change) if change else '—'} | "
+        output += f"{format_percentage(pct_change/100) if pct_change else '—'} {trend} |\n"
+
     else:
-        output += "Data unavailable"
-    output += " |\n"
+        # Single period format (fallback)
+        output += "| Ratio | Value | Interpretation |\n"
+        output += "|-------|-------|----------------|\n"
+
+        output += f"| **Debt-to-Equity** | {format_ratio(metrics.debt_to_equity)} | "
+        if metrics.debt_to_equity and metrics.debt_to_equity <= 1.0:
+            output += "✓ Conservative"
+        elif metrics.debt_to_equity and metrics.debt_to_equity <= 2.0:
+            output += "Moderate"
+        elif metrics.debt_to_equity:
+            output += "⚠ High leverage"
+        else:
+            output += "Data unavailable"
+        output += " |\n"
+
+        output += f"| **Debt-to-Assets** | {format_ratio(metrics.debt_to_assets)} | "
+        if metrics.debt_to_assets and metrics.debt_to_assets <= 0.3:
+            output += "✓ Very conservative"
+        elif metrics.debt_to_assets and metrics.debt_to_assets <= 0.5:
+            output += "✓ Moderate"
+        elif metrics.debt_to_assets:
+            output += "⚠ High debt"
+        else:
+            output += "Data unavailable"
+        output += " |\n"
+
+        output += f"| **Equity Ratio** | {format_ratio(metrics.equity_ratio)} | "
+        if metrics.equity_ratio and metrics.equity_ratio >= 0.5:
+            output += "✓ Strong"
+        elif metrics.equity_ratio and metrics.equity_ratio >= 0.3:
+            output += "Moderate"
+        elif metrics.equity_ratio:
+            output += "⚠ Weak"
+        else:
+            output += "Data unavailable"
+        output += " |\n"
 
     output += "\n**Formula Reference:**\n"
     output += "- Debt-to-Equity = Total Debt ÷ Total Shareholders' Equity\n"
     output += "- Debt-to-Assets = Total Debt ÷ Total Assets\n"
-    output += "- Interest Coverage = EBIT ÷ Interest Expense\n"
     output += "- Equity Ratio = Total Equity ÷ Total Assets\n\n"
 
     output += "---\n\n"
@@ -503,68 +714,122 @@ def format_financial_metrics(metrics: Any, company_name: str) -> str:
     # Profitability Ratios
     output += "## Profitability Ratios\n"
     output += "*Earnings generation and margins*\n\n"
-    output += "| Ratio | Value | Interpretation |\n"
-    output += "|-------|-------|----------------|\n"
 
-    output += f"| **Gross Margin** | {format_percentage(metrics.gross_profit_margin)} | "
-    output += f"{get_ratio_interpretation('gross_profit_margin', metrics.gross_profit_margin)} "
-    if metrics.gross_profit_margin and metrics.gross_profit_margin >= 0.40:
-        output += "Excellent pricing power"
-    elif metrics.gross_profit_margin and metrics.gross_profit_margin >= 0.20:
-        output += "Healthy margins"
-    elif metrics.gross_profit_margin:
-        output += "Low margins"
-    else:
-        output += "Data unavailable"
-    output += " |\n"
+    if has_comparative:
+        # Calculate prior period ratios
+        gross_margin_prior = _calculate_ratio_from_data(metrics.balance_sheet, metrics.income_statement,
+                                                         metrics.cash_flow_statement, 'gross_profit_margin', '_Prior')
+        operating_margin_prior = _calculate_ratio_from_data(metrics.balance_sheet, metrics.income_statement,
+                                                             metrics.cash_flow_statement, 'operating_margin', '_Prior')
+        net_margin_prior = _calculate_ratio_from_data(metrics.balance_sheet, metrics.income_statement,
+                                                       metrics.cash_flow_statement, 'net_profit_margin', '_Prior')
+        roa_prior = _calculate_ratio_from_data(metrics.balance_sheet, metrics.income_statement,
+                                                metrics.cash_flow_statement, 'return_on_assets', '_Prior')
+        roe_prior = _calculate_ratio_from_data(metrics.balance_sheet, metrics.income_statement,
+                                                metrics.cash_flow_statement, 'return_on_equity', '_Prior')
 
-    output += f"| **Operating Margin** | {format_percentage(metrics.operating_margin)} | "
-    output += f"{get_ratio_interpretation('operating_margin', metrics.operating_margin)} "
-    if metrics.operating_margin and metrics.operating_margin >= 0.20:
-        output += "Strong operational efficiency"
-    elif metrics.operating_margin and metrics.operating_margin >= 0.10:
-        output += "Moderate efficiency"
-    elif metrics.operating_margin:
-        output += "Low efficiency"
-    else:
-        output += "Data unavailable"
-    output += " |\n"
+        output += f"| Ratio | {current_date} | {prior_date} | Change | % Change |\n"
+        output += "|-------|------------|------------|--------|----------|\n"
 
-    output += f"| **Net Margin** | {format_percentage(metrics.net_profit_margin)} | "
-    output += f"{get_ratio_interpretation('net_profit_margin', metrics.net_profit_margin)} "
-    if metrics.net_profit_margin and metrics.net_profit_margin >= 0.15:
-        output += "Excellent bottom-line profitability"
-    elif metrics.net_profit_margin and metrics.net_profit_margin >= 0.08:
-        output += "Healthy profitability"
-    elif metrics.net_profit_margin:
-        output += "Low profitability"
-    else:
-        output += "Data unavailable"
-    output += " |\n"
+        # Gross Margin
+        change = (metrics.gross_profit_margin - gross_margin_prior) if metrics.gross_profit_margin and gross_margin_prior else None
+        pct_change = (change / gross_margin_prior * 100) if change and gross_margin_prior else None
+        trend = "↑" if change and change > 0 else "↓" if change and change < 0 else "→"
+        output += f"| **Gross Margin** | {format_percentage(metrics.gross_profit_margin)} | {format_percentage(gross_margin_prior)} | "
+        output += f"{format_percentage(change) if change else '—'} | "
+        output += f"{format_percentage(pct_change/100) if pct_change else '—'} {trend} |\n"
 
-    output += f"| **Return on Assets (ROA)** | {format_percentage(metrics.return_on_assets)} | "
-    output += f"{get_ratio_interpretation('return_on_assets', metrics.return_on_assets)} "
-    if metrics.return_on_assets and metrics.return_on_assets >= 0.15:
-        output += "Efficient asset utilization"
-    elif metrics.return_on_assets and metrics.return_on_assets >= 0.08:
-        output += "Moderate asset efficiency"
-    elif metrics.return_on_assets:
-        output += "Low asset efficiency"
-    else:
-        output += "Data unavailable"
-    output += " |\n"
+        # Operating Margin
+        change = (metrics.operating_margin - operating_margin_prior) if metrics.operating_margin and operating_margin_prior else None
+        pct_change = (change / operating_margin_prior * 100) if change and operating_margin_prior else None
+        trend = "↑" if change and change > 0 else "↓" if change and change < 0 else "→"
+        output += f"| **Operating Margin** | {format_percentage(metrics.operating_margin)} | {format_percentage(operating_margin_prior)} | "
+        output += f"{format_percentage(change) if change else '—'} | "
+        output += f"{format_percentage(pct_change/100) if pct_change else '—'} {trend} |\n"
 
-    output += f"| **Return on Equity (ROE)** | {format_percentage(metrics.return_on_equity)} | "
-    output += f"{get_ratio_interpretation('return_on_equity', metrics.return_on_equity)} "
-    if metrics.return_on_equity and metrics.return_on_equity >= 0.15:
-        output += "Excellent shareholder returns"
-    elif metrics.return_on_equity and metrics.return_on_equity >= 0.08:
-        output += "Adequate returns"
-    elif metrics.return_on_equity:
-        output += "Low returns"
+        # Net Margin
+        change = (metrics.net_profit_margin - net_margin_prior) if metrics.net_profit_margin and net_margin_prior else None
+        pct_change = (change / net_margin_prior * 100) if change and net_margin_prior else None
+        trend = "↑" if change and change > 0 else "↓" if change and change < 0 else "→"
+        output += f"| **Net Margin** | {format_percentage(metrics.net_profit_margin)} | {format_percentage(net_margin_prior)} | "
+        output += f"{format_percentage(change) if change else '—'} | "
+        output += f"{format_percentage(pct_change/100) if pct_change else '—'} {trend} |\n"
+
+        # ROA
+        change = (metrics.return_on_assets - roa_prior) if metrics.return_on_assets and roa_prior else None
+        pct_change = (change / roa_prior * 100) if change and roa_prior else None
+        trend = "↑" if change and change > 0 else "↓" if change and change < 0 else "→"
+        output += f"| **Return on Assets (ROA)** | {format_percentage(metrics.return_on_assets)} | {format_percentage(roa_prior)} | "
+        output += f"{format_percentage(change) if change else '—'} | "
+        output += f"{format_percentage(pct_change/100) if pct_change else '—'} {trend} |\n"
+
+        # ROE
+        change = (metrics.return_on_equity - roe_prior) if metrics.return_on_equity and roe_prior else None
+        pct_change = (change / roe_prior * 100) if change and roe_prior else None
+        trend = "↑" if change and change > 0 else "↓" if change and change < 0 else "→"
+        output += f"| **Return on Equity (ROE)** | {format_percentage(metrics.return_on_equity)} | {format_percentage(roe_prior)} | "
+        output += f"{format_percentage(change) if change else '—'} | "
+        output += f"{format_percentage(pct_change/100) if pct_change else '—'} {trend} |\n"
+
     else:
-        output += "Data unavailable"
-    output += " |\n"
+        # Single period format (fallback)
+        output += "| Ratio | Value | Interpretation |\n"
+        output += "|-------|-------|----------------|\n"
+
+        output += f"| **Gross Margin** | {format_percentage(metrics.gross_profit_margin)} | "
+        if metrics.gross_profit_margin and metrics.gross_profit_margin >= 0.40:
+            output += "✓ Excellent"
+        elif metrics.gross_profit_margin and metrics.gross_profit_margin >= 0.20:
+            output += "✓ Healthy"
+        elif metrics.gross_profit_margin:
+            output += "⚠ Low"
+        else:
+            output += "Data unavailable"
+        output += " |\n"
+
+        output += f"| **Operating Margin** | {format_percentage(metrics.operating_margin)} | "
+        if metrics.operating_margin and metrics.operating_margin >= 0.20:
+            output += "✓ Strong"
+        elif metrics.operating_margin and metrics.operating_margin >= 0.10:
+            output += "✓ Moderate"
+        elif metrics.operating_margin:
+            output += "⚠ Low"
+        else:
+            output += "Data unavailable"
+        output += " |\n"
+
+        output += f"| **Net Margin** | {format_percentage(metrics.net_profit_margin)} | "
+        if metrics.net_profit_margin and metrics.net_profit_margin >= 0.15:
+            output += "✓ Excellent"
+        elif metrics.net_profit_margin and metrics.net_profit_margin >= 0.08:
+            output += "✓ Healthy"
+        elif metrics.net_profit_margin:
+            output += "⚠ Low"
+        else:
+            output += "Data unavailable"
+        output += " |\n"
+
+        output += f"| **Return on Assets (ROA)** | {format_percentage(metrics.return_on_assets)} | "
+        if metrics.return_on_assets and metrics.return_on_assets >= 0.15:
+            output += "✓ Efficient"
+        elif metrics.return_on_assets and metrics.return_on_assets >= 0.08:
+            output += "✓ Moderate"
+        elif metrics.return_on_assets:
+            output += "⚠ Low"
+        else:
+            output += "Data unavailable"
+        output += " |\n"
+
+        output += f"| **Return on Equity (ROE)** | {format_percentage(metrics.return_on_equity)} | "
+        if metrics.return_on_equity and metrics.return_on_equity >= 0.15:
+            output += "✓ Excellent"
+        elif metrics.return_on_equity and metrics.return_on_equity >= 0.08:
+            output += "✓ Adequate"
+        elif metrics.return_on_equity:
+            output += "⚠ Low"
+        else:
+            output += "Data unavailable"
+        output += " |\n"
 
     output += "\n**Formula Reference:**\n"
     output += "- Gross Margin = Gross Profit ÷ Revenue\n"

@@ -251,6 +251,50 @@ class EnhancedFinancialResearchManager:
         output_path = self.session_dir / filename
         output_path.write_text(content, encoding="utf-8")
 
+    def _flatten_statement_data(self, statement: dict[str, Any]) -> dict[str, Any]:
+        """
+        Flatten nested statement data structure from MCP tools.
+
+        The get_financial_statements MCP tool may return data in nested format like:
+        {
+            "data": {
+                "Assets": {"value": 133735000000.0, "raw_value": "133,735", ...},
+                "Liabilities": {"value": 53019000000.0, ...}
+            },
+            "source": "xbrl_concepts_dynamic"
+        }
+
+        This function flattens it to the expected format:
+        {
+            "Assets": 133735000000.0,
+            "Liabilities": 53019000000.0,
+            ...
+        }
+
+        If the data is already flat, it returns it unchanged.
+        """
+        if not statement:
+            return statement
+
+        # Check if this looks like nested metadata format
+        if "data" in statement and isinstance(statement.get("data"), dict):
+            # Extract the nested data
+            nested_data = statement["data"]
+            flattened = {}
+
+            for key, value in nested_data.items():
+                # If value is a dict with a "value" field, extract it
+                if isinstance(value, dict) and "value" in value:
+                    flattened[key] = value["value"]
+                # Otherwise use the value directly
+                else:
+                    flattened[key] = value
+
+            return flattened
+
+        # If data is already flat (keys map directly to numbers/strings), return as-is
+        return statement
+
     def _copy_xbrl_audit_files(self, company_name: str) -> None:
         """Copy raw XBRL CSV files from debug_edgar to current output directory for audit trail."""
         if self.session_dir is None:
@@ -422,8 +466,29 @@ class EnhancedFinancialResearchManager:
             # Import deterministic extraction module
             from financial_research_agent.edgar_tools import extract_financial_data_deterministic
 
-            # Extract company name from query (simple heuristic)
-            company_name = query.split()[0] if query else "Company"
+            # Extract company name from query using improved heuristic
+            # Look for known company names or ticker symbols
+            company_keywords = ["apple", "tesla", "microsoft", "google", "amazon", "meta", "nvidia",
+                              "alphabet", "facebook", "aapl", "tsla", "msft", "googl", "amzn", "nvda"]
+            query_lower = query.lower()
+            company_name = None
+
+            for keyword in company_keywords:
+                if keyword in query_lower:
+                    company_name = keyword
+                    break
+
+            # Fallback: assume company name is the first capitalized word that's not a verb
+            if not company_name:
+                skip_words = ["analyze", "analyse", "what", "how", "show", "get", "find", "compare"]
+                words = query.split()
+                for word in words:
+                    if word.lower() not in skip_words and (word[0].isupper() or word.isupper()):
+                        company_name = word.strip("'s").strip(",")
+                        break
+
+            if not company_name:
+                company_name = "Company"
 
             # Step 1: Use deterministic extraction to get complete financial data
             self.printer.update_item("metrics", f"Extracting financial data for {company_name} using deterministic MCP tools...")
@@ -434,8 +499,35 @@ class EnhancedFinancialResearchManager:
                     self.edgar_server,
                     company_name
                 )
-                # Successfully extracted - logged to file
-                pass
+
+                # Verify data completeness immediately after extraction
+                if statements_data:
+                    from financial_research_agent.verification_tools import (
+                        verify_financial_data_completeness,
+                        format_verification_report
+                    )
+
+                    self.printer.update_item("metrics", "Verifying data completeness...")
+                    verification = verify_financial_data_completeness(statements_data)
+
+                    # Save verification report
+                    if self.session_dir:
+                        verification_file = self.session_dir / "data_verification.md"
+                        verification_file.write_text(format_verification_report(verification), encoding='utf-8')
+
+                    # Log verification results
+                    if verification['valid']:
+                        self.console.print(f"[green]✓ Data verification passed - {verification['stats'].get('total_line_items', 0)} line items extracted[/green]")
+                    else:
+                        self.console.print(f"[yellow]⚠ Data verification found {len(verification['errors'])} errors[/yellow]")
+                        for error in verification['errors']:
+                            self.console.print(f"[yellow]  - {error.split(chr(10))[0]}[/yellow]")  # First line only
+
+                    # Show warnings
+                    if verification['warnings']:
+                        for warning in verification['warnings']:
+                            self.console.print(f"[dim]  Note: {warning}[/dim]")
+
             except Exception as e:
                 self.console.print(f"[yellow]Warning: Deterministic extraction failed: {e}[/yellow]")
                 import traceback
@@ -449,18 +541,24 @@ class EnhancedFinancialResearchManager:
             if statements_data and statements_data['balance_sheet']:
                 # We have deterministic data - provide it to the agent
                 self.printer.update_item("metrics", "Calculating financial ratios from extracted data...")
+
+                # Extract line_items from the new structure if present
+                bs_data = statements_data['balance_sheet'].get('line_items', statements_data['balance_sheet'])
+                is_data = statements_data['income_statement'].get('line_items', statements_data['income_statement'])
+                cf_data = statements_data['cash_flow_statement'].get('line_items', statements_data['cash_flow_statement'])
+
                 metrics_query = f"""Query: {query}
 
 Financial statements have been pre-extracted from SEC EDGAR using deterministic get_company_facts API:
 
-Balance Sheet ({len(statements_data['balance_sheet'])} line items):
-{json.dumps(statements_data['balance_sheet'], indent=2)}
+Balance Sheet ({len(bs_data)} line items):
+{json.dumps(bs_data, indent=2)}
 
-Income Statement ({len(statements_data['income_statement'])} line items):
-{json.dumps(statements_data['income_statement'], indent=2)}
+Income Statement ({len(is_data)} line items):
+{json.dumps(is_data, indent=2)}
 
-Cash Flow Statement ({len(statements_data['cash_flow_statement'])} line items):
-{json.dumps(statements_data['cash_flow_statement'], indent=2)}
+Cash Flow Statement ({len(cf_data)} line items):
+{json.dumps(cf_data, indent=2)}
 
 Your task:
 1. Use the provided financial statement data above (with _Current and _Prior suffixes)
@@ -481,6 +579,33 @@ Use get_company_facts to get ALL available XBRL data."""
 
             result = await Runner.run(metrics_with_mcp, metrics_query, max_turns=AgentConfig.MAX_AGENT_TURNS)
             metrics = result.final_output_as(FinancialMetrics)
+
+            # If we have deterministic extraction data, use it directly for financial statements
+            # instead of the agent's reformatted version. This preserves human-readable labels.
+            if statements_data and statements_data.get('balance_sheet'):
+                self.console.print("[dim]Using deterministic extraction for financial statements (preserves human-readable labels)[/dim]")
+                metrics.balance_sheet = statements_data['balance_sheet']
+                metrics.income_statement = statements_data['income_statement']
+                metrics.cash_flow_statement = statements_data['cash_flow_statement']
+                metrics.period = statements_data.get('period', metrics.period)
+                metrics.filing_reference = statements_data.get('filing_reference', metrics.filing_reference)
+            else:
+                # Fallback: Clean up financial statement data if it contains nested metadata
+                # (MCP tools may return nested structures with metadata)
+                bs_before = list(metrics.balance_sheet.keys())[:3] if isinstance(metrics.balance_sheet, dict) else []
+                metrics.balance_sheet = self._flatten_statement_data(metrics.balance_sheet)
+                metrics.income_statement = self._flatten_statement_data(metrics.income_statement)
+                # Cash flow may be a string if unavailable - only flatten if it's a dict
+                if isinstance(metrics.cash_flow_statement, dict):
+                    metrics.cash_flow_statement = self._flatten_statement_data(metrics.cash_flow_statement)
+                elif isinstance(metrics.cash_flow_statement, str):
+                    # Convert error message string to empty dict for formatter
+                    metrics.cash_flow_statement = {}
+                bs_after = list(metrics.balance_sheet.keys())[:3] if isinstance(metrics.balance_sheet, dict) else []
+
+                # Log if flattening occurred (for debugging)
+                if bs_before != bs_after:
+                    self.console.print(f"[dim]Data flattened: {bs_before} → {bs_after}[/dim]")
 
             # Save financial statements (03_financial_statements.md)
             statements_content = format_financial_statements(
@@ -746,18 +871,33 @@ Use get_company_facts to get ALL available XBRL data."""
             import re
 
             # Match patterns for the key balance sheet line items
-            assets_match = re.search(r'\|\s*Assets\s*\|\s*\$([0-9,]+)', content)
-            liabilities_match = re.search(r'\|\s*Liabilities\s*\|\s*\$([0-9,]+)', content)
-            equity_match = re.search(r'\|\s*StockholdersEquity\s*\|\s*\$([0-9,]+)', content)
+            # Look for various possible labels with spaces or without
+            assets_match = (re.search(r'\|\s*\*?\*?Total [Aa]ssets\*?\*?\s*\|\s*\$([0-9,]+)', content) or
+                          re.search(r'\|\s*\*?\*?Assets\*?\*?\s*\|\s*\$([0-9,]+)', content))
+            liabilities_match = (re.search(r'\|\s*\*?\*?Total [Ll]iabilities\*?\*?\s*\|\s*\$([0-9,]+)', content) or
+                               re.search(r'\|\s*\*?\*?Liabilities\*?\*?\s*\|\s*\$([0-9,]+)', content))
+            equity_match = (re.search(r'\|\s*\*?\*?Total [Ss]tockholders[\'\s]*[Ee]quity\*?\*?\s*\|\s*\$([0-9,]+)', content) or
+                          re.search(r'\|\s*\*?\*?Stockholders[\'\s]*[Ee]quity\*?\*?\s*\|\s*\$([0-9,]+)', content) or
+                          re.search(r'\|\s*\*?\*?StockholdersEquity\*?\*?\s*\|\s*\$([0-9,]+)', content))
+
+            # Also look for minority interest and redeemable noncontrolling interests
+            minority_match = (re.search(r'\|\s*\*?\*?Minority [Ii]nterest\*?\*?\s*\|\s*\$([0-9,]+)', content) or
+                            re.search(r'\|\s*\*?\*?MinorityInterest\*?\*?\s*\|\s*\$([0-9,]+)', content))
+            redeemable_match = (re.search(r'\|\s*\*?\*?Redeemable [Nn]oncontrolling [Ii]nterests? in [Ss]ubsidiaries\*?\*?\s*\|\s*\$([0-9,]+)', content) or
+                              re.search(r'\|\s*\*?\*?Redeemablenoncontrollinginterestsinsubsidiaries\*?\*?\s*\|\s*\$([0-9,]+)', content))
 
             if assets_match and liabilities_match and equity_match:
                 # Parse the numbers (remove commas and convert to float)
                 assets = float(assets_match.group(1).replace(',', ''))
                 liabilities = float(liabilities_match.group(1).replace(',', ''))
                 equity = float(equity_match.group(1).replace(',', ''))
+                minority = float(minority_match.group(1).replace(',', '')) if minority_match else 0
+                redeemable = float(redeemable_match.group(1).replace(',', '')) if redeemable_match else 0
 
-                # Calculate total and difference
-                total = liabilities + equity
+                # Balance sheet equation: Assets = Liabilities + Equity + Minority Interest + Redeemable NCI
+                # For Tesla: Assets = Liabilities + Stockholders' Equity + Minority Interest + Redeemable NCI
+                total_equity_components = equity + minority + redeemable
+                total = liabilities + total_equity_components
                 diff = abs(assets - total)
 
                 # Set tolerance at 0.1% of total assets
@@ -765,13 +905,21 @@ Use get_company_facts to get ALL available XBRL data."""
 
                 if diff > tolerance:
                     # Format numbers with commas for readability
+                    equity_breakdown = f"   Stockholders' Equity: ${equity:,.0f}\n"
+                    if minority > 0:
+                        equity_breakdown += f"   + Minority Interest: ${minority:,.0f}\n"
+                    if redeemable > 0:
+                        equity_breakdown += f"   + Redeemable Noncontrolling Interests: ${redeemable:,.0f}\n"
+
                     errors.append(
                         f"⚠️  BALANCE SHEET ARITHMETIC ERROR:\n"
                         f"   Assets: ${assets:,.0f}\n"
-                        f"   Liabilities + Equity: ${total:,.0f}\n"
+                        f"   Liabilities: ${liabilities:,.0f}\n"
+                        f"{equity_breakdown}"
+                        f"   Total Liabilities & Equity: ${total:,.0f}\n"
                         f"   Difference: ${diff:,.0f} ({diff/assets*100:.2f}% of Assets)\n"
                         f"   This exceeds tolerance of ${tolerance:,.0f} (0.1% of Assets)\n"
-                        f"   → The fundamental accounting equation (Assets = L + E) does not balance!"
+                        f"   → The fundamental accounting equation (Assets = L + All Equity Components) does not balance!"
                     )
         except Exception as e:
             # Don't fail the whole process if validation has an issue

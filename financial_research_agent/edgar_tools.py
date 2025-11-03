@@ -144,17 +144,31 @@ def _extract_statements_from_dataframes(
     """
 
     def df_to_dict(df: Any) -> dict[str, Any]:
-        """Convert a single statement DataFrame to dictionary with _Current and _Prior."""
-        result = {}
+        """Convert a single statement DataFrame to dictionary with _Current and _Prior.
+
+        Returns a dictionary with three sections:
+        - 'line_items': Dict mapping human-readable labels to values
+        - 'xbrl_concepts': Dict mapping same labels to XBRL concept names for citations
+        - 'period_dates': Dict with 'current' and 'prior' period end dates
+        """
+        line_items = {}
+        xbrl_concepts = {}
 
         # Get column names (dates)
         date_cols = [col for col in df.columns if isinstance(col, str) and '-' in col and col[0].isdigit()]
 
         if len(date_cols) < 1:
-            return result
+            return {'line_items': line_items, 'xbrl_concepts': xbrl_concepts, 'period_dates': {}}
 
         current_col = date_cols[0] if len(date_cols) >= 1 else None
         prior_col = date_cols[1] if len(date_cols) >= 2 else None
+
+        # Store the actual period dates for column headers
+        period_dates = {}
+        if current_col:
+            period_dates['current'] = current_col
+        if prior_col:
+            period_dates['prior'] = prior_col
 
         # Iterate through rows
         for idx, row in df.iterrows():
@@ -162,25 +176,30 @@ def _extract_statements_from_dataframes(
             if row.get('abstract', False):
                 continue
 
-            # Use label as the key (more readable than concept)
+            # Get both label (human-readable) and concept (XBRL technical ID)
             label = row.get('label', row.get('concept', f'Item_{idx}'))
+            concept = row.get('concept', label)
 
-            # Clean up label (remove special characters, make it a valid dict key)
-            clean_label = label.replace(' ', '').replace(',', '').replace('&', 'And')
+            # Use the original label WITH spaces as the key (human-readable)
+            # This preserves readability: "Depreciation, amortization and impairment"
+            # instead of "Depreciationamortizationandimpairment"
+
+            # Store XBRL concept for citation purposes
+            xbrl_concepts[label] = concept
 
             # Get current period value
             if current_col and current_col in row:
                 current_val = row[current_col]
                 if current_val is not None and not (isinstance(current_val, float) and str(current_val) == 'nan'):
-                    result[f"{clean_label}_Current"] = current_val
+                    line_items[f"{label}_Current"] = current_val
 
             # Get prior period value
             if prior_col and prior_col in row:
                 prior_val = row[prior_col]
                 if prior_val is not None and not (isinstance(prior_val, float) and str(prior_val) == 'nan'):
-                    result[f"{clean_label}_Prior"] = prior_val
+                    line_items[f"{label}_Prior"] = prior_val
 
-        return result
+        return {'line_items': line_items, 'xbrl_concepts': xbrl_concepts, 'period_dates': period_dates}
 
     # Convert each statement
     balance_sheet = df_to_dict(bs_df)
