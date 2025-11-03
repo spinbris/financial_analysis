@@ -120,7 +120,7 @@ class EnhancedFinancialResearchManager:
     - Saves detailed specialist analysis separately
     """
 
-    def __init__(self, output_dir: str = "financial_research_agent/output") -> None:
+    def __init__(self, output_dir: str = "financial_research_agent/output", progress_callback=None) -> None:
         self.console = Console()
         self.printer = Printer(self.console)
         self.output_dir = Path(output_dir)
@@ -133,6 +133,19 @@ class EnhancedFinancialResearchManager:
         self.edgar_server: MCPServerStdio | None = None
         self.edgar_enabled = AgentConfig.ENABLE_EDGAR_INTEGRATION
 
+        # Progress callback for web interface (optional)
+        # Signature: callback(progress: float, description: str)
+        self.progress_callback = progress_callback
+
+    def _report_progress(self, progress: float, description: str) -> None:
+        """Report progress to callback if provided."""
+        if self.progress_callback:
+            try:
+                self.progress_callback(progress, description)
+            except Exception:
+                # Don't fail if callback has issues
+                pass
+
     async def run(self, query: str) -> None:
         # Create timestamped session directory
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -143,6 +156,7 @@ class EnhancedFinancialResearchManager:
 
         # Initialize EDGAR MCP server if enabled
         if self.edgar_enabled:
+            self._report_progress(0.05, "Initializing SEC EDGAR connection...")
             await self._initialize_edgar_server()
 
         try:
@@ -154,26 +168,37 @@ class EnhancedFinancialResearchManager:
                     hide_checkmark=True,
                 )
                 self.printer.update_item("start", "Starting comprehensive financial research...", is_done=True)
+                self._report_progress(0.10, "Starting comprehensive financial research...")
 
                 # Save the original query
                 self._save_output("00_query.md", f"# Original Query\n\n{query}\n")
 
+                self._report_progress(0.15, "Planning search strategy...")
                 search_plan = await self._plan_searches(query)
+
+                self._report_progress(0.20, "Searching web sources...")
                 search_results = await self._perform_searches(search_plan)
 
                 # Optionally gather EDGAR data if enabled
                 edgar_results = None
                 metrics_results = None
                 if self.edgar_enabled and self.edgar_server:
+                    self._report_progress(0.30, "Gathering SEC filing data from EDGAR...")
                     edgar_results = await self._gather_edgar_data(query, search_plan)
+
+                    self._report_progress(0.40, "Extracting financial statements (40+ line items)...")
                     # Gather financial metrics and statements
                     metrics_results = await self._gather_financial_metrics(query)
+
+                    self._report_progress(0.55, "Running specialist financial analyses...")
                     # Gather specialist analyses and save separately
                     await self._gather_specialist_analyses(query, search_results)
 
+                self._report_progress(0.70, "Synthesizing comprehensive research report...")
                 report = await self._write_report(query, search_results, edgar_results, metrics_results)
 
                 # Run deterministic validation checks before LLM verification
+                self._report_progress(0.85, "Validating financial data quality...")
                 validation_errors = self._validate_financial_statements()
                 if validation_errors:
                     error_msg = "\n\n".join(validation_errors)
@@ -187,14 +212,17 @@ class EnhancedFinancialResearchManager:
                             f.write(f"\n\n=== Validation Errors ({datetime.now().isoformat()}) ===\n")
                             f.write(error_msg + "\n")
 
+                self._report_progress(0.90, "Verifying report accuracy...")
                 verification = await self._verify_report(report)
 
                 final_summary = f"Report complete\n\n{report.executive_summary}"
                 self.printer.update_item("final_report", final_summary, is_done=True)
+                self._report_progress(0.95, "Finalizing reports...")
 
                 self.printer.end()
 
             # All reports saved to files - just show completion message
+            self._report_progress(1.0, "Analysis complete!")
             self.console.print(f"\n✅ [green bold]Research complete![/green bold]")
             self.console.print(f"📁 [bold]All reports saved to:[/bold] [cyan]{self.session_dir.absolute()}[/cyan]\n")
 
