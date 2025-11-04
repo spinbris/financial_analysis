@@ -25,8 +25,10 @@ from .agents.search_agent import search_agent
 from .agents.verifier_agent import VerificationResult, verifier_agent
 from .agents.writer_agent_enhanced import ComprehensiveFinancialReport, writer_agent_enhanced
 from .config import AgentConfig, EdgarConfig
-from .formatters import format_financial_statements, format_financial_metrics
+from .formatters import format_financial_statements, format_financial_statements_gt, format_financial_metrics
 from .printer import Printer
+from .cache import FinancialDataCache
+from .xbrl_calculation import get_calculation_parser_for_filing
 
 
 async def _financials_extractor(run_result: RunResult) -> str:
@@ -137,6 +139,12 @@ class EnhancedFinancialResearchManager:
         # Signature: callback(progress: float, description: str)
         self.progress_callback = progress_callback
 
+        # PERFORMANCE: Cache for financial data (24 hour TTL)
+        self.cache = FinancialDataCache(ttl_hours=24)
+
+        # XBRL validation warnings (populated during metrics gathering)
+        self.xbrl_warnings: list[str] = []
+
     def _report_progress(self, progress: float, description: str) -> None:
         """Report progress to callback if provided."""
         if self.progress_callback:
@@ -176,15 +184,19 @@ class EnhancedFinancialResearchManager:
                 self._report_progress(0.15, "Planning search strategy...")
                 search_plan = await self._plan_searches(query)
 
-                self._report_progress(0.20, "Searching web sources...")
-                search_results = await self._perform_searches(search_plan)
-
-                # Optionally gather EDGAR data if enabled
+                # PERFORMANCE OPTIMIZATION: Run web search and EDGAR queries in parallel
                 edgar_results = None
                 metrics_results = None
+
                 if self.edgar_enabled and self.edgar_server:
-                    self._report_progress(0.30, "Gathering SEC filing data from EDGAR...")
-                    edgar_results = await self._gather_edgar_data(query, search_plan)
+                    self._report_progress(0.20, "Gathering data from web and SEC EDGAR in parallel...")
+
+                    # Run web search and EDGAR data gathering concurrently
+                    search_task = asyncio.create_task(self._perform_searches(search_plan))
+                    edgar_task = asyncio.create_task(self._gather_edgar_data(query, search_plan))
+
+                    # Wait for both to complete
+                    search_results, edgar_results = await asyncio.gather(search_task, edgar_task)
 
                     self._report_progress(0.40, "Extracting financial statements (40+ line items)...")
                     # Gather financial metrics and statements
@@ -193,6 +205,10 @@ class EnhancedFinancialResearchManager:
                     self._report_progress(0.55, "Running specialist financial analyses...")
                     # Gather specialist analyses and save separately
                     await self._gather_specialist_analyses(query, search_results)
+                else:
+                    # EDGAR not enabled - just run web search
+                    self._report_progress(0.20, "Searching web sources...")
+                    search_results = await self._perform_searches(search_plan)
 
                 self._report_progress(0.70, "Synthesizing comprehensive research report...")
                 report = await self._write_report(query, search_results, edgar_results, metrics_results)
@@ -329,35 +345,28 @@ class EnhancedFinancialResearchManager:
             return
 
         try:
-            # Get ticker from company name
-            ticker_mapping = {
-                "apple": "AAPL",
-                "microsoft": "MSFT",
-                "tesla": "TSLA",
-                "amazon": "AMZN",
-                "google": "GOOGL",
-                "alphabet": "GOOGL",
-                "meta": "META",
-                "facebook": "META",
-                "nvidia": "NVDA",
-            }
-            company_key = company_name.lower().split()[0] if company_name else ""
-            ticker = ticker_mapping.get(company_key, "UNKNOWN")
-
             # Source directory
             debug_dir = Path("financial_research_agent/output/debug_edgar")
             if not debug_dir.exists():
                 return
 
-            # Find and copy XBRL CSV files for this ticker
-            csv_files = list(debug_dir.glob(f"xbrl_raw_*_{ticker}_*.csv"))
+            # Try to find CSV files matching the company name (case-insensitive)
+            # Look for files containing the company name or ticker
+            company_pattern = company_name.lower().split()[0] if company_name else ""
+            csv_files = list(debug_dir.glob(f"xbrl_raw_*{company_pattern}*.csv"))
+
+            # Also try uppercase version (for tickers)
+            if not csv_files and company_pattern:
+                csv_files = list(debug_dir.glob(f"xbrl_raw_*{company_pattern.upper()}*.csv"))
+
             if csv_files:
                 for csv_file in csv_files:
                     dest_file = self.session_dir / csv_file.name
                     shutil.copy2(csv_file, dest_file)
                     # Silently copy - file list shown at end
         except Exception as e:
-            self.console.print(f"[yellow]Warning: Could not copy XBRL audit files: {e}[/yellow]")
+            # Don't warn - this is optional debug feature
+            pass
 
     async def _plan_searches(self, query: str) -> FinancialSearchPlan:
         self.printer.update_item("planning", "Planning searches...")
@@ -483,6 +492,83 @@ class EnhancedFinancialResearchManager:
             self.printer.update_item("edgar", "EDGAR data unavailable", is_done=True)
             return None
 
+    def _validate_xbrl_calculations(self, statements_data: dict, filing_url: str | None = None) -> list[str]:
+        """
+        Validate financial statement totals using XBRL calculation linkbase.
+
+        Args:
+            statements_data: Extracted financial data with balance_sheet, income_statement, etc.
+            filing_url: Optional URL to filing for fetching calculation linkbase
+
+        Returns:
+            List of validation warnings (empty if all validations pass)
+        """
+        warnings = []
+
+        try:
+            # Try to get calculation linkbase parser
+            parser = None
+
+            if filing_url:
+                parser = get_calculation_parser_for_filing(filing_url)
+
+            if not parser:
+                # No calculation linkbase available - skip validation
+                return warnings
+
+            self.console.print("[dim]Validating calculations using XBRL linkbase...[/dim]")
+
+            # Extract balance sheet values (remove _Current/_Prior suffixes for validation)
+            bs_data = statements_data.get('balance_sheet', {})
+            if isinstance(bs_data, dict) and 'line_items' in bs_data:
+                bs_data = bs_data['line_items']
+
+            # Build concept_values dict with current period values
+            concept_values = {}
+            for key, value in bs_data.items():
+                if key.endswith('_Current') and isinstance(value, (int, float)):
+                    # Remove _Current suffix and convert to us-gaap format
+                    concept_name = key[:-8]  # Remove '_Current'
+                    # Try common XBRL concept names
+                    concept_values[f"us-gaap:{concept_name}"] = value
+                    concept_values[concept_name] = value  # Also try without namespace
+
+            # Validate key balance sheet concepts
+            key_concepts = [
+                'us-gaap:Assets',
+                'us-gaap:LiabilitiesAndStockholdersEquity',
+                'us-gaap:AssetsCurrent',
+                'us-gaap:Liabilities',
+                'us-gaap:StockholdersEquity'
+            ]
+
+            for concept in key_concepts:
+                is_valid, reported, calculated = parser.validate_calculation(
+                    concept_values,
+                    concept,
+                    tolerance=0.02  # 2% tolerance for rounding
+                )
+
+                if reported is not None and calculated is not None and not is_valid:
+                    # Format numbers for readability
+                    reported_str = f"${reported/1e9:.2f}B" if abs(reported) > 1e9 else f"${reported/1e6:.2f}M"
+                    calculated_str = f"${calculated/1e9:.2f}B" if abs(calculated) > 1e9 else f"${calculated/1e6:.2f}M"
+                    diff_pct = abs(reported - calculated) / abs(reported) * 100 if reported != 0 else 0
+
+                    warning = f"{concept}: Reported {reported_str} != Calculated {calculated_str} (diff: {diff_pct:.1f}%)"
+                    warnings.append(warning)
+                    self.console.print(f"[yellow]⚠ XBRL Validation: {warning}[/yellow]")
+
+            if not warnings:
+                self.console.print("[green]✓ XBRL calculation validation passed[/green]")
+            else:
+                self.console.print(f"[yellow]⚠ Found {len(warnings)} calculation discrepancies[/yellow]")
+
+        except Exception as e:
+            self.console.print(f"[dim]Note: XBRL validation skipped: {e}[/dim]")
+
+        return warnings
+
     async def _gather_financial_metrics(self, query: str) -> FinancialMetrics | None:
         """Gather financial statements and calculate comprehensive ratios."""
         if not self.edgar_server:
@@ -492,7 +578,7 @@ class EnhancedFinancialResearchManager:
 
         try:
             # Import deterministic extraction module
-            from financial_research_agent.edgar_tools import extract_financial_data_deterministic
+            from financial_research_agent.edgar_tools import extract_financial_data_deterministic, dataframes_to_dict_format
 
             # Extract company name from query using improved heuristic
             # Look for known company names or ticker symbols
@@ -518,62 +604,109 @@ class EnhancedFinancialResearchManager:
             if not company_name:
                 company_name = "Company"
 
-            # Step 1: Use deterministic extraction to get complete financial data
-            self.printer.update_item("metrics", f"Extracting financial data for {company_name} using deterministic MCP tools...")
+            # PERFORMANCE: Check cache first
+            cached_statements = self.cache.get(company_name, "financial_statements")
+            if cached_statements:
+                self.console.print(f"[dim]✓ Using cached financial data for {company_name}[/dim]")
+                statements_data = cached_statements
+            else:
+                # Step 1: Use deterministic extraction to get complete financial data
+                self.printer.update_item("metrics", f"Extracting financial data for {company_name} using deterministic MCP tools...")
 
-            statements_data = None
-            try:
-                statements_data = await extract_financial_data_deterministic(
-                    self.edgar_server,
-                    company_name
-                )
-
-                # Verify data completeness immediately after extraction
-                if statements_data:
-                    from financial_research_agent.verification_tools import (
-                        verify_financial_data_completeness,
-                        format_verification_report
+                statements_data = None
+                try:
+                    statements_data = await extract_financial_data_deterministic(
+                        self.edgar_server,
+                        company_name
                     )
 
-                    self.printer.update_item("metrics", "Verifying data completeness...")
-                    verification = verify_financial_data_completeness(statements_data)
+                    # PERFORMANCE: Cache the extracted data
+                    if statements_data:
+                        self.cache.set(company_name, "financial_statements", statements_data)
+                except Exception as e:
+                    self.console.print(f"[yellow]Warning: Deterministic extraction failed: {e}[/yellow]")
+                    import traceback
+                    traceback.print_exc()
+                    self.console.print("[yellow]Falling back to LLM-based extraction...[/yellow]")
 
-                    # Save verification report
-                    if self.session_dir:
-                        verification_file = self.session_dir / "data_verification.md"
-                        verification_file.write_text(format_verification_report(verification), encoding='utf-8')
+            # Continue with verification if we have data
+            if statements_data:
+                from financial_research_agent.verification_tools import (
+                    verify_financial_data_completeness,
+                    format_verification_report
+                )
 
-                    # Log verification results
-                    if verification['valid']:
-                        self.console.print(f"[green]✓ Data verification passed - {verification['stats'].get('total_line_items', 0)} line items extracted[/green]")
-                    else:
-                        self.console.print(f"[yellow]⚠ Data verification found {len(verification['errors'])} errors[/yellow]")
-                        for error in verification['errors']:
-                            self.console.print(f"[yellow]  - {error.split(chr(10))[0]}[/yellow]")  # First line only
+                self.printer.update_item("metrics", "Verifying data completeness...")
 
-                    # Show warnings
-                    if verification['warnings']:
-                        for warning in verification['warnings']:
-                            self.console.print(f"[dim]  Note: {warning}[/dim]")
+                # Convert DataFrames to dict format for verification if needed
+                if 'balance_sheet_df' in statements_data:
+                    verification_data = dataframes_to_dict_format(
+                        statements_data['balance_sheet_df'],
+                        statements_data['income_statement_df'],
+                        statements_data['cash_flow_statement_df']
+                    )
+                else:
+                    # Legacy dict format
+                    verification_data = statements_data
 
-            except Exception as e:
-                self.console.print(f"[yellow]Warning: Deterministic extraction failed: {e}[/yellow]")
-                import traceback
-                traceback.print_exc()
-                self.console.print("[yellow]Falling back to LLM-based extraction...[/yellow]")
+                verification = verify_financial_data_completeness(verification_data)
+
+                # Save verification report
+                if self.session_dir:
+                    verification_file = self.session_dir / "data_verification.md"
+                    verification_file.write_text(format_verification_report(verification), encoding='utf-8')
+
+                # Log verification results
+                if verification['valid']:
+                    self.console.print(f"[green]✓ Data verification passed - {verification['stats'].get('total_line_items', 0)} line items extracted[/green]")
+                else:
+                    self.console.print(f"[yellow]⚠ Data verification found {len(verification['errors'])} errors[/yellow]")
+                    for error in verification['errors']:
+                        self.console.print(f"[yellow]  - {error.split(chr(10))[0]}[/yellow]")  # First line only
+
+                # Show warnings
+                if verification['warnings']:
+                    for warning in verification['warnings']:
+                        self.console.print(f"[dim]  Note: {warning}[/dim]")
+
+                # XBRL Calculation Linkbase Validation
+                try:
+                    # Try to get filing URL from statements_data
+                    filing_url = statements_data.get('filing_url')
+                    if filing_url:
+                        self.xbrl_warnings = self._validate_xbrl_calculations(statements_data, filing_url)
+                except Exception as e:
+                    self.console.print(f"[dim]XBRL validation skipped: {e}[/dim]")
 
             # Step 2: Clone metrics agent with MCP server attached
             metrics_with_mcp = financial_metrics_agent.clone(mcp_servers=[self.edgar_server])
 
             # Step 3: Create query for the agent
-            if statements_data and statements_data['balance_sheet']:
+            # Check if we have DataFrame-based data or dict-based data
+            has_data = statements_data and (
+                'balance_sheet_df' in statements_data or
+                (isinstance(statements_data.get('balance_sheet'), dict) and statements_data['balance_sheet'])
+            )
+
+            if has_data:
                 # We have deterministic data - provide it to the agent
                 self.printer.update_item("metrics", "Calculating financial ratios from extracted data...")
 
-                # Extract line_items from the new structure if present
-                bs_data = statements_data['balance_sheet'].get('line_items', statements_data['balance_sheet'])
-                is_data = statements_data['income_statement'].get('line_items', statements_data['income_statement'])
-                cf_data = statements_data['cash_flow_statement'].get('line_items', statements_data['cash_flow_statement'])
+                # Convert DataFrames to dict format if needed
+                if 'balance_sheet_df' in statements_data:
+                    dict_data = dataframes_to_dict_format(
+                        statements_data['balance_sheet_df'],
+                        statements_data['income_statement_df'],
+                        statements_data['cash_flow_statement_df']
+                    )
+                    bs_data = dict_data['balance_sheet']
+                    is_data = dict_data['income_statement']
+                    cf_data = dict_data['cash_flow_statement']
+                else:
+                    # Legacy dict format - extract line_items from the new structure if present
+                    bs_data = statements_data['balance_sheet'].get('line_items', statements_data['balance_sheet'])
+                    is_data = statements_data['income_statement'].get('line_items', statements_data['income_statement'])
+                    cf_data = statements_data['cash_flow_statement'].get('line_items', statements_data['cash_flow_statement'])
 
                 metrics_query = f"""Query: {query}
 
@@ -610,13 +743,30 @@ Use get_company_facts to get ALL available XBRL data."""
 
             # If we have deterministic extraction data, use it directly for financial statements
             # instead of the agent's reformatted version. This preserves human-readable labels.
-            if statements_data and statements_data.get('balance_sheet'):
+            if statements_data and ('balance_sheet_df' in statements_data or statements_data.get('balance_sheet')):
                 self.console.print("[dim]Using deterministic extraction for financial statements (preserves human-readable labels)[/dim]")
-                metrics.balance_sheet = statements_data['balance_sheet']
-                metrics.income_statement = statements_data['income_statement']
-                metrics.cash_flow_statement = statements_data['cash_flow_statement']
-                metrics.period = statements_data.get('period', metrics.period)
-                metrics.filing_reference = statements_data.get('filing_reference', metrics.filing_reference)
+
+                # For dict-based data (metrics agent needs dicts, not DataFrames)
+                if 'balance_sheet_df' not in statements_data:
+                    # Legacy dict format
+                    metrics.balance_sheet = statements_data['balance_sheet']
+                    metrics.income_statement = statements_data['income_statement']
+                    metrics.cash_flow_statement = statements_data['cash_flow_statement']
+                    metrics.period = statements_data.get('period', metrics.period)
+                    metrics.filing_reference = statements_data.get('filing_reference', metrics.filing_reference)
+                else:
+                    # DataFrame format - convert to dict for metrics agent
+                    # (Note: We keep DataFrames in statements_data for the formatter)
+                    dict_data = dataframes_to_dict_format(
+                        statements_data['balance_sheet_df'],
+                        statements_data['income_statement_df'],
+                        statements_data['cash_flow_statement_df']
+                    )
+                    metrics.balance_sheet = dict_data['balance_sheet']
+                    metrics.income_statement = dict_data['income_statement']
+                    metrics.cash_flow_statement = dict_data['cash_flow_statement']
+                    metrics.period = statements_data.get('current_period', metrics.period)
+                    metrics.filing_reference = statements_data.get('filing_reference', metrics.filing_reference)
             else:
                 # Fallback: Clean up financial statement data if it contains nested metadata
                 # (MCP tools may return nested structures with metadata)
@@ -636,14 +786,29 @@ Use get_company_facts to get ALL available XBRL data."""
                     self.console.print(f"[dim]Data flattened: {bs_before} → {bs_after}[/dim]")
 
             # Save financial statements (03_financial_statements.md)
-            statements_content = format_financial_statements(
-                balance_sheet=metrics.balance_sheet,
-                income_statement=metrics.income_statement,
-                cash_flow_statement=metrics.cash_flow_statement,
-                company_name=company_name,
-                period=metrics.period,
-                filing_reference=metrics.filing_reference,
-            )
+            # Check if we have DataFrames from the new extraction method
+            if statements_data and 'balance_sheet_df' in statements_data:
+                # New DataFrame-based approach using Great Tables
+                self.console.print("[dim]Using Great Tables formatter for professional table styling[/dim]")
+                statements_content = format_financial_statements_gt(
+                    balance_sheet_df=statements_data['balance_sheet_df'],
+                    income_statement_df=statements_data['income_statement_df'],
+                    cash_flow_statement_df=statements_data['cash_flow_statement_df'],
+                    company_name=company_name,
+                    current_period=statements_data.get('current_period', 'Current'),
+                    prior_period=statements_data.get('prior_period'),
+                    filing_reference=statements_data.get('filing_reference', 'Unknown'),
+                )
+            else:
+                # Legacy dict-based approach
+                statements_content = format_financial_statements(
+                    balance_sheet=metrics.balance_sheet,
+                    income_statement=metrics.income_statement,
+                    cash_flow_statement=metrics.cash_flow_statement,
+                    company_name=company_name,
+                    period=metrics.period,
+                    filing_reference=metrics.filing_reference,
+                )
             self._save_output("03_financial_statements.md", statements_content)
 
             # Save financial metrics (04_financial_metrics.md)
@@ -967,6 +1132,16 @@ Use get_company_facts to get ALL available XBRL data."""
         verification_content = f"# Verification Results\n\n"
         verification_content += f"**Verified:** {'✅ Yes' if verification.verified else '❌ No'}\n\n"
         verification_content += f"## Issues/Comments\n\n{verification.issues}\n"
+
+        # Add XBRL validation warnings if present
+        if self.xbrl_warnings:
+            verification_content += f"\n## XBRL Calculation Linkbase Validation\n\n"
+            verification_content += "The following discrepancies were found when validating financial statement totals "
+            verification_content += "against official SEC XBRL calculation linkbase relationships:\n\n"
+            for warning in self.xbrl_warnings:
+                verification_content += f"- ⚠️ {warning}\n"
+            verification_content += "\n*Note: 2% tolerance applied for rounding differences*\n"
+
         self._save_output("08_verification.md", verification_content)
 
         # Warn if verification failed

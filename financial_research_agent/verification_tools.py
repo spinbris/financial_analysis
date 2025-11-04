@@ -83,15 +83,19 @@ def verify_financial_data_completeness(statements_data: dict[str, Any]) -> dict[
 
     for key in bs.keys():
         key_lower = key.lower()
-        if 'total' in key_lower and 'asset' in key_lower and '_current' in key_lower:
+        # Check if this is a Current period key (case-insensitive)
+        if not key.endswith('_Current'):
+            continue
+
+        if 'total' in key_lower and 'asset' in key_lower:
             assets_key = key
-        elif 'total' in key_lower and 'liabilit' in key_lower and '_current' in key_lower:
+        elif 'total' in key_lower and 'liabilit' in key_lower:
             liabilities_key = key
-        elif ('stockholder' in key_lower or 'shareholder' in key_lower) and 'equity' in key_lower and '_current' in key_lower:
+        elif ('stockholder' in key_lower or 'shareholder' in key_lower) and 'equity' in key_lower:
             equity_key = key
-        elif 'minority' in key_lower and 'interest' in key_lower and '_current' in key_lower:
+        elif 'minority' in key_lower and 'interest' in key_lower:
             minority_key = key
-        elif 'redeemable' in key_lower and 'noncontrolling' in key_lower and '_current' in key_lower:
+        elif 'redeemable' in key_lower and 'noncontrolling' in key_lower:
             redeemable_key = key
 
     if assets_key and liabilities_key and equity_key:

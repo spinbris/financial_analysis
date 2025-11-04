@@ -18,5 +18,8 @@ search_agent = Agent(
     model=AgentConfig.SEARCH_MODEL,
     instructions=INSTRUCTIONS,
     tools=[brave_search],  # 10x cheaper than OpenAI WebSearchTool
-    model_settings=ModelSettings(tool_choice="required"),
+    model_settings=AgentConfig.get_model_settings(
+        AgentConfig.SEARCH_MODEL,
+        AgentConfig.SEARCH_REASONING_EFFORT
+    ),
 )

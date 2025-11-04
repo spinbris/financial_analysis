@@ -63,22 +63,34 @@ class WebApp:
         self,
         query: str,
         progress=gr.Progress()
-    ) -> tuple[str, str, str, str, str]:
+    ):
         """
-        Generate financial analysis from query.
+        Generate financial analysis from query with streaming updates.
 
-        Returns:
+        Yields:
             Tuple of (status_message, comprehensive_report, financial_statements,
                      financial_metrics, data_verification)
         """
         if not query or query.strip() == "":
-            return (
+            yield (
                 "❌ Please enter a query or select a template",
                 "", "", "", ""
             )
+            return
 
         try:
-            # Define progress callback to relay updates to Gradio
+            # Initialize empty reports
+            reports = {
+                'comprehensive': '*⏳ Waiting for comprehensive report...*',
+                'statements': '*⏳ Waiting for financial statements...*',
+                'metrics': '*⏳ Waiting for financial metrics...*',
+                'verification': '*⏳ Waiting for verification...*'
+            }
+
+            # Track which reports we've already loaded
+            loaded_reports = set()
+
+            # Define progress callback with streaming updates
             def progress_callback(prog: float, desc: str):
                 progress(prog, desc=desc)
 
@@ -86,15 +98,52 @@ class WebApp:
             progress(0.0, desc="Initializing analysis engine...")
             self.manager = EnhancedFinancialResearchManager(progress_callback=progress_callback)
 
-            # Run the analysis (progress updates will come from manager via callback)
-            await self.manager.run(query)
+            # Start the analysis in background
+            import asyncio
+            analysis_task = asyncio.create_task(self.manager.run(query))
+
+            # Poll for completed reports while analysis runs
+            last_check = 0
+            while not analysis_task.done():
+                # Check every 2 seconds for new reports
+                await asyncio.sleep(2)
+
+                if self.manager.session_dir and self.manager.session_dir.exists():
+                    self.current_session_dir = self.manager.session_dir
+
+                    # Check for new reports
+                    new_reports = self._load_reports()
+                    has_updates = False
+
+                    for key, content in new_reports.items():
+                        if (not content.startswith('*Report not generated:') and
+                            key not in loaded_reports):
+                            reports[key] = content
+                            loaded_reports.add(key)
+                            has_updates = True
+
+                    # Yield update if we found new reports
+                    if has_updates:
+                        timestamp = self.current_session_dir.name if self.current_session_dir else "unknown"
+                        status_msg = f"🔄 Analysis in progress...\n\n**Session:** {timestamp}\n**Query:** {query}\n\n**Completed:** {', '.join(sorted(loaded_reports))}"
+
+                        yield (
+                            status_msg,
+                            reports.get('comprehensive', ''),
+                            reports.get('statements', ''),
+                            reports.get('metrics', ''),
+                            reports.get('verification', '')
+                        )
+
+            # Wait for analysis to complete
+            await analysis_task
 
             # Get the session directory that was created
             self.current_session_dir = self.manager.session_dir
 
-            progress(0.98, desc="Loading generated reports...")
+            progress(0.98, desc="Loading final reports...")
 
-            # Load the generated reports
+            # Load all final reports
             reports = self._load_reports()
 
             progress(1.0, desc="Complete!")
@@ -102,7 +151,7 @@ class WebApp:
             timestamp = self.current_session_dir.name if self.current_session_dir else "unknown"
             status_msg = f"✅ Analysis completed successfully!\n\n**Session:** {timestamp}\n**Query:** {query}"
 
-            return (
+            yield (
                 status_msg,
                 reports.get('comprehensive', ''),
                 reports.get('statements', ''),
@@ -112,7 +161,7 @@ class WebApp:
 
         except Exception as e:
             error_msg = f"❌ Error during analysis:\n\n{str(e)}"
-            return (error_msg, "", "", "", "")
+            yield (error_msg, "", "", "", "")
 
     def _load_reports(self) -> dict[str, str]:
         """Load generated markdown reports from session directory."""
@@ -409,6 +458,8 @@ class WebApp:
             'server_port': 7860,
             'share': False,
             'show_error': True,
+            'inbrowser': True,  # Auto-open browser
+            'favicon_path': None,
         }
         launch_settings.update(kwargs)
 

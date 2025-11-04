@@ -1,6 +1,8 @@
 """Formatting utilities for financial statements and metrics output."""
 
 from typing import Any
+import pandas as pd
+from great_tables import GT, md, html
 
 
 def format_currency(value: float | int | None) -> str:
@@ -236,10 +238,10 @@ def format_financial_statements(
     if balance_sheet:
         if has_comparative:
             output += f"| Line Item | {current_date} | {prior_date} |\n"
-            output += "|-----------|-----------|----------|\n"
+            output += "|:----------|----------:|----------:|\n"
         else:
             output += "| Line Item | Amount |\n"
-            output += "|-----------|--------|\n"
+            output += "|:----------|-------:|\n"
 
         # Collect unique base item names (without _Current/_Prior suffix)
         # Preserve insertion order from edgartools DataFrame (XBRL presentation order)
@@ -292,10 +294,10 @@ def format_financial_statements(
     if income_statement:
         if has_comparative_income:
             output += f"| Line Item | {current_date_income} | {prior_date_income} |\n"
-            output += "|-----------|-----------|----------|\n"
+            output += "|:----------|----------:|----------:|\n"
         else:
             output += "| Line Item | Amount |\n"
-            output += "|-----------|--------|\n"
+            output += "|:----------|-------:|\n"
 
         # Collect unique base item names (preserving XBRL presentation order)
         base_items_income = []
@@ -345,10 +347,10 @@ def format_financial_statements(
     if cash_flow_statement:
         if has_comparative_cf:
             output += f"| Line Item | {current_date_cf} | {prior_date_cf} |\n"
-            output += "|-----------|-----------|----------|\n"
+            output += "|:----------|----------:|----------:|\n"
         else:
             output += "| Line Item | Amount |\n"
-            output += "|-----------|--------|\n"
+            output += "|:----------|-------:|\n"
 
         # Collect unique base item names (preserving XBRL presentation order)
         base_items_cf = []
@@ -386,6 +388,121 @@ def format_financial_statements(
         output += "*No cash flow statement data available*\n"
 
     output += "\n---\n\n"
+    output += "## Data Source\n\n"
+    output += f"All financial data extracted from official SEC EDGAR filings using XBRL precision.  \n"
+    output += f"**Filing Reference:** {filing_reference}  \n\n"
+    output += "*Note: Values are typically in thousands of USD unless otherwise specified in the line item name.*\n"
+
+    return output
+
+
+def format_financial_statements_gt(
+    balance_sheet_df: pd.DataFrame,
+    income_statement_df: pd.DataFrame,
+    cash_flow_statement_df: pd.DataFrame,
+    company_name: str,
+    current_period: str,
+    prior_period: str | None,
+    filing_reference: str,
+) -> str:
+    """
+    Format complete financial statements as markdown from DataFrames.
+
+    This is the modernized version using DataFrames directly.
+    Significantly more concise and maintainable than the original 220-line manual formatter.
+
+    Args:
+        balance_sheet_df: Balance sheet DataFrame from edgartools
+        income_statement_df: Income statement DataFrame from edgartools
+        cash_flow_statement_df: Cash flow statement DataFrame from edgartools
+        company_name: Company name
+        current_period: Current period date (e.g., "2025-06-28")
+        prior_period: Prior period date (e.g., "2024-09-28") or None
+        filing_reference: Filing reference string
+
+    Returns:
+        Formatted markdown string with professionally styled tables
+    """
+    output = f"# Financial Statements\n\n"
+    output += f"**Company:** {company_name}  \n"
+    output += f"**Period:** {current_period}  \n"
+    output += f"**Filing:** {filing_reference}  \n\n"
+    output += "---\n\n"
+
+    # Helper function to format a statement DataFrame as markdown
+    def format_statement(df: pd.DataFrame, title: str, subtitle: str, bold_keywords: list[str]) -> str:
+        """Format a single financial statement as markdown table."""
+        # Filter out abstract rows (headers)
+        df_filtered = df[~df.get('abstract', False)].copy()
+
+        # Get date columns (numeric data columns)
+        date_cols = [col for col in df_filtered.columns if isinstance(col, str) and '-' in col and col[0].isdigit()]
+
+        if not date_cols or len(df_filtered) == 0:
+            return f"## {title}\n{subtitle}\n\n*No data available*\n\n---\n\n"
+
+        # Build markdown table manually
+        markdown = f"## {title}\n{subtitle}\n\n"
+
+        # Header row
+        markdown += "| Line Item | " + " | ".join(date_cols) + " |\n"
+        # Alignment row (left for line items, right for numbers)
+        markdown += "|:----------|" + "----------:|" * len(date_cols) + "\n"
+
+        # Data rows
+        for idx, row in df_filtered.iterrows():
+            label = row.get('label', row.get('concept', f'Item_{idx}'))
+
+            # Check if this row should be bold (contains keywords)
+            is_bold = any(keyword.lower() in str(label).lower() for keyword in bold_keywords)
+
+            # Format label
+            label_text = f"**{label}**" if is_bold else label
+
+            # Format values
+            values = []
+            for col in date_cols:
+                val = row.get(col)
+                if pd.isna(val):
+                    formatted_val = "—"
+                else:
+                    # Format as currency (handle both numeric and string types)
+                    if isinstance(val, (int, float)):
+                        formatted_val = f"${val:,.0f}"
+                    else:
+                        # Already a string, use as-is
+                        formatted_val = str(val)
+                    if is_bold:
+                        formatted_val = f"**{formatted_val}**"
+                values.append(formatted_val)
+
+            markdown += f"| {label_text} | " + " | ".join(values) + " |\n"
+
+        markdown += "\n---\n\n"
+        return markdown
+
+    # Format each statement
+    output += format_statement(
+        balance_sheet_df,
+        "Consolidated Balance Sheet",
+        "*All figures in USD (from XBRL, exact values)*  \n*Items displayed in SEC XBRL presentation order*",
+        ["total", "liabilities", "equity", "assets"]
+    )
+
+    output += format_statement(
+        income_statement_df,
+        "Consolidated Statement of Operations",
+        f"*Period: {current_period} (from XBRL, exact values)*",
+        ["revenue", "gross profit", "operating income", "net income", "ebit"]
+    )
+
+    output += format_statement(
+        cash_flow_statement_df,
+        "Consolidated Statement of Cash Flows",
+        f"*Period: {current_period} (from XBRL, exact values)*  \n*Items displayed in SEC XBRL presentation order*",
+        ["total", "net", "cash equivalents", "operating activities", "investing activities", "financing activities"]
+    )
+
     output += "## Data Source\n\n"
     output += f"All financial data extracted from official SEC EDGAR filings using XBRL precision.  \n"
     output += f"**Filing Reference:** {filing_reference}  \n\n"

@@ -74,6 +74,10 @@ edgar_agent = Agent(
     name="EdgarFilingAgent",
     instructions=EDGAR_PROMPT,
     model=AgentConfig.EDGAR_MODEL,
+    model_settings=AgentConfig.get_model_settings(
+        AgentConfig.EDGAR_MODEL,
+        AgentConfig.EDGAR_REASONING_EFFORT
+    ),
     output_type=AgentOutputSchema(EdgarAnalysisSummary, strict_json_schema=False),
     tools=[get_available_edgar_tools],  # Add MCP tools documentation
 )

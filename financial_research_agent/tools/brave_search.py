@@ -62,28 +62,47 @@ async def _brave_search_impl(query: str, count: int = 10) -> str:
             "result_filter": "web"  # Focus on web results for financial research
         }
 
-        # Make API request
+        # Make API request with retry logic
         base_url = "https://api.search.brave.com/res/v1/web/search"
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(
-                base_url,
-                headers=headers,
-                params=params
-            )
-            response.raise_for_status()
 
-        data = response.json()
+        # Retry up to 3 times for network errors
+        max_retries = 3
+        last_error = None
 
-        # Format and return results
-        return _format_results(data, query)
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:  # Increased timeout to 30s
+                    response = await client.get(
+                        base_url,
+                        headers=headers,
+                        params=params,
+                        follow_redirects=True
+                    )
+                    response.raise_for_status()
 
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 401:
-            return "Error: Invalid Brave API key. Please check your BRAVE_API_KEY in .env file."
-        elif e.response.status_code == 429:
-            return "Error: Brave API rate limit exceeded. Please try again later."
-        else:
-            return f"Error: Brave API returned status {e.response.status_code}: {e.response.text}"
+                data = response.json()
+
+                # Format and return results
+                return _format_results(data, query)
+
+            except (httpx.RemoteProtocolError, httpx.ReadError, httpx.ConnectError) as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    # Wait before retry (exponential backoff)
+                    import asyncio
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                else:
+                    # Last attempt failed
+                    return f"Error: Brave API connection failed after {max_retries} attempts. Network issue: {str(e)}"
+
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 401:
+                    return "Error: Invalid Brave API key. Please check your BRAVE_API_KEY in .env file."
+                elif e.response.status_code == 429:
+                    return "Error: Brave API rate limit exceeded. Please try again later."
+                else:
+                    return f"Error: Brave API returned status {e.response.status_code}: {e.response.text}"
 
     except Exception as e:
         return f"Error searching with Brave API: {str(e)}"

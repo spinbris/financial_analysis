@@ -18,10 +18,11 @@ env/
 
 # Environment and secrets
 .env
-.env.*
 .env.local
 .env.budget
-*.env
+
+# Allow .env.example to be committed
+!.env.example
 
 # Output directories
 financial_research_agent/output/

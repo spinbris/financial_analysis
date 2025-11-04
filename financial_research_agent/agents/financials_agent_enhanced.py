@@ -235,5 +235,9 @@ financials_agent_enhanced = Agent(
     model=AgentConfig.FINANCIALS_MODEL,
     name="ComprehensiveFinancialsAnalystAgent",
     instructions=FINANCIALS_PROMPT,
+    model_settings=AgentConfig.get_model_settings(
+        AgentConfig.FINANCIALS_MODEL,
+        AgentConfig.FINANCIALS_REASONING_EFFORT
+    ),
     output_type=AgentOutputSchema(ComprehensiveFinancialAnalysis, strict_json_schema=False),
 )

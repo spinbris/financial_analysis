@@ -127,5 +127,9 @@ verifier_agent = Agent(
     name="VerificationAgent",
     instructions=VERIFIER_PROMPT,
     model=AgentConfig.VERIFIER_MODEL,
+    model_settings=AgentConfig.get_model_settings(
+        AgentConfig.VERIFIER_MODEL,
+        AgentConfig.VERIFIER_REASONING_EFFORT
+    ),
     output_type=VerificationResult,
 )

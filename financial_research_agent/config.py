@@ -16,15 +16,30 @@ except ImportError:
 class AgentConfig:
     """Configuration for agent models and settings."""
 
-    # Model configurations
-    PLANNER_MODEL = os.getenv("PLANNER_MODEL", "o3-mini")
-    SEARCH_MODEL = os.getenv("SEARCH_MODEL", "gpt-4.1")
-    WRITER_MODEL = os.getenv("WRITER_MODEL", "gpt-4.1")
+    # Model configurations (performance-optimized defaults)
+    # Use gpt-4o-mini for simple tasks (planning, search) - proven fast & cheap
+    # Use gpt-4o for critical analysis tasks - proven quality & speed
+    # NOTE: gpt-5 models with reasoning_effort="minimal" can also be fast!
+    PLANNER_MODEL = os.getenv("PLANNER_MODEL", "gpt-4o-mini")
+    SEARCH_MODEL = os.getenv("SEARCH_MODEL", "gpt-4o-mini")
+    WRITER_MODEL = os.getenv("WRITER_MODEL", "gpt-4o")
     VERIFIER_MODEL = os.getenv("VERIFIER_MODEL", "gpt-4o")
-    EDGAR_MODEL = os.getenv("EDGAR_MODEL", "gpt-4.1")
-    FINANCIALS_MODEL = os.getenv("FINANCIALS_MODEL", "gpt-4.1")
-    RISK_MODEL = os.getenv("RISK_MODEL", "gpt-4.1")
-    METRICS_MODEL = os.getenv("METRICS_MODEL", "gpt-4.1")
+    EDGAR_MODEL = os.getenv("EDGAR_MODEL", "gpt-4o")
+    FINANCIALS_MODEL = os.getenv("FINANCIALS_MODEL", "gpt-4o")
+    RISK_MODEL = os.getenv("RISK_MODEL", "gpt-4o")
+    METRICS_MODEL = os.getenv("METRICS_MODEL", "gpt-4o")
+
+    # Reasoning effort per model (minimal, low, medium, high)
+    # Only applies when using gpt-5, gpt-5-mini, or gpt-5-nano models
+    # "minimal" = fast (few/no reasoning tokens), "high" = slow but highest quality
+    PLANNER_REASONING_EFFORT = os.getenv("PLANNER_REASONING_EFFORT", "minimal")
+    SEARCH_REASONING_EFFORT = os.getenv("SEARCH_REASONING_EFFORT", "minimal")
+    EDGAR_REASONING_EFFORT = os.getenv("EDGAR_REASONING_EFFORT", "minimal")
+    METRICS_REASONING_EFFORT = os.getenv("METRICS_REASONING_EFFORT", "minimal")
+    FINANCIALS_REASONING_EFFORT = os.getenv("FINANCIALS_REASONING_EFFORT", "low")
+    RISK_REASONING_EFFORT = os.getenv("RISK_REASONING_EFFORT", "low")
+    WRITER_REASONING_EFFORT = os.getenv("WRITER_REASONING_EFFORT", "low")
+    VERIFIER_REASONING_EFFORT = os.getenv("VERIFIER_REASONING_EFFORT", "minimal")
 
     # Search configuration
     MAX_SEARCH_RETRIES = int(os.getenv("MAX_SEARCH_RETRIES", "3"))
@@ -40,6 +55,47 @@ class AgentConfig:
 
     # Feature flags
     ENABLE_EDGAR_INTEGRATION = os.getenv("ENABLE_EDGAR_INTEGRATION", "false").lower() == "true"
+
+    @staticmethod
+    def get_model_settings(model: str, reasoning_effort: str):
+        """
+        Get ModelSettings for a given model and reasoning effort.
+
+        Only applies to reasoning models: gpt-5, gpt-5-mini, gpt-5-nano, o1, o3, o3-mini.
+        Returns None for other models (gpt-4o, gpt-4o-mini, etc.).
+
+        Args:
+            model: Model name (e.g., "gpt-5", "o3-mini", "gpt-4o")
+            reasoning_effort: Effort level ("minimal", "low", "medium", "high")
+
+        Returns:
+            ModelSettings if reasoning model, None otherwise
+        """
+        # Only apply reasoning settings to reasoning models
+        is_reasoning_model = (
+            model.startswith("gpt-5") or
+            model.startswith("o1") or
+            model.startswith("o3")
+        )
+
+        if not is_reasoning_model:
+            return None
+
+        try:
+            from agents import ModelSettings
+            from openai.types.shared import Reasoning
+
+            # o3 models only support verbosity="medium"
+            # gpt-5 models support verbosity="low"
+            verbosity = "medium" if model.startswith("o") else "low"
+
+            return ModelSettings(
+                reasoning=Reasoning(effort=reasoning_effort),
+                verbosity=verbosity
+            )
+        except ImportError:
+            # If agents SDK not available, return None
+            return None
 
 
 class EdgarConfig:

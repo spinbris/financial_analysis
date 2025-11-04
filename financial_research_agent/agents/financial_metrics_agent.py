@@ -364,6 +364,10 @@ financial_metrics_agent = Agent(
     name="FinancialMetricsAgent",
     instructions=FINANCIAL_METRICS_PROMPT,
     model=AgentConfig.METRICS_MODEL,
+    model_settings=AgentConfig.get_model_settings(
+        AgentConfig.METRICS_MODEL,
+        AgentConfig.METRICS_REASONING_EFFORT
+    ),
     output_type=AgentOutputSchema(FinancialMetrics, strict_json_schema=False),
     tools=[get_available_edgar_tools],  # Add MCP tools documentation
 )

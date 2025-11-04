@@ -188,5 +188,9 @@ writer_agent_enhanced = Agent(
     name="ComprehensiveFinancialWriterAgent",
     instructions=WRITER_PROMPT,
     model=AgentConfig.WRITER_MODEL,
+    model_settings=AgentConfig.get_model_settings(
+        AgentConfig.WRITER_MODEL,
+        AgentConfig.WRITER_REASONING_EFFORT
+    ),
     output_type=ComprehensiveFinancialReport,
 )

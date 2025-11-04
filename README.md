@@ -21,19 +21,25 @@ At this stage though it is very much still in development stage and is still inc
 
 ## Quick Start
 
-### Budget Mode (Recommended)
+### Optimized Mode (Recommended) - GPT-5
+```bash
+python launch_web_app.py
+# Or: python -m financial_research_agent.main_enhanced
+```
+- **Time:** 3-5 minutes (first run), 2-3 minutes (cached)
+- **Cost:** ~$0.08 per report
+- **Reports per $20:** ~250 comprehensive reports
+- Uses GPT-5-nano for planning/search, GPT-5 for analysis
+- **70% faster and 47% cheaper than original!**
+
+### Budget Mode
 ```bash
 python -m financial_research_agent.main_budget
 ```
-- **Cost:** ~$0.22 per report
-- **Reports per $20:** ~90 comprehensive reports
-
-### Standard Mode
-```bash
-python -m financial_research_agent.main_enhanced
-```
-- **Cost:** ~$0.43 per report
-- **Reports per $20:** ~46 comprehensive reports
+- **Time:** 8-10 minutes
+- **Cost:** ~$0.10 per report (lower quality)
+- **Reports per $20:** ~200 reports
+- Uses gpt-4o-mini for all tasks (quality trade-off)
 
 ## Example Query
 

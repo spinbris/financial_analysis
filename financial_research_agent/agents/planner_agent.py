@@ -56,5 +56,9 @@ planner_agent = Agent(
     name="FinancialPlannerAgent",
     instructions=PROMPT,
     model=AgentConfig.PLANNER_MODEL,
+    model_settings=AgentConfig.get_model_settings(
+        AgentConfig.PLANNER_MODEL,
+        AgentConfig.PLANNER_REASONING_EFFORT
+    ),
     output_type=FinancialSearchPlan,
 )

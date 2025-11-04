@@ -36,7 +36,7 @@ async def extract_financial_data_deterministic(
     """
 
     # Import edgartools
-    from edgar import Company, set_identity
+    from edgar import Company, set_identity, find_company
 
     # Set SEC identity (required)
     user_agent = os.getenv("SEC_EDGAR_USER_AGENT", "FinancialResearchAgent/1.0 (test@example.com)")
@@ -47,25 +47,29 @@ async def extract_financial_data_deterministic(
     else:
         set_identity("test@example.com")
 
-    # Step 1: Get ticker symbol from company name
-    ticker_mapping = {
-        "apple": "AAPL",
-        "microsoft": "MSFT",
-        "tesla": "TSLA",
-        "amazon": "AMZN",
-        "google": "GOOGL",
-        "alphabet": "GOOGL",
-        "meta": "META",
-        "facebook": "META",
-        "nvidia": "NVDA",
-        "nvda": "NVDA",
-    }
+    # Step 1: Search for company using edgartools' find_company
+    # This searches SEC's database and works for any public company
+    try:
+        search_results = find_company(company_name)
 
-    company_key = company_name.lower().split()[0]
-    ticker = ticker_mapping.get(company_key)
+        if not search_results or len(search_results) == 0:
+            raise ValueError(f"No companies found matching: {company_name}")
 
-    if not ticker:
-        raise ValueError(f"Could not find ticker for company: {company_name}. Please add to ticker_mapping in edgar_tools.py")
+        # Get the first (most relevant) result
+        first_result = search_results[0]
+        ticker = first_result.ticker if hasattr(first_result, 'ticker') else first_result.tickers
+        cik = first_result.cik
+
+        # Handle case where ticker might be a list
+        if isinstance(ticker, list):
+            ticker = ticker[0] if ticker else None
+
+        if not ticker:
+            # If no ticker, use CIK directly
+            ticker = str(cik)
+
+    except Exception as e:
+        raise ValueError(f"Failed to find company '{company_name}': {e}")
 
     # Step 2: Get latest 10-Q filing using edgartools
     try:
@@ -114,13 +118,109 @@ async def extract_financial_data_deterministic(
         f.write(f"Balance Sheet columns: {list(bs_df.columns)}\n\n")
         f.write(f"Balance Sheet preview:\n{bs_df.head(20).to_string()}\n")
 
-    # Step 4: Convert DataFrames to dictionaries with _Current and _Prior suffixes
-    statements = _extract_statements_from_dataframes(bs_df, is_df, cf_df, filing)
+    # Step 4: Return DataFrames with metadata (no conversion to dict)
+    # Get filing metadata
+    filing_date = str(filing.filing_date) if hasattr(filing, 'filing_date') else 'Unknown'
+    form_type = str(filing.form) if hasattr(filing, 'form') else 'Unknown'
 
-    if not statements or not statements.get('balance_sheet'):
-        raise RuntimeError(f"Failed to extract statements from DataFrames")
+    # Get period from DataFrame columns
+    date_cols = [col for col in bs_df.columns if isinstance(col, str) and '-' in col and col[0].isdigit()]
+    current_period = date_cols[0] if len(date_cols) >= 1 else 'Unknown'
+    prior_period = date_cols[1] if len(date_cols) >= 2 else None
 
-    return statements
+    # Find XBRL calculation linkbase URL (_cal.xml) for validation
+    filing_url = None
+    try:
+        if hasattr(filing, 'attachments'):
+            for att in filing.attachments:
+                if hasattr(att, 'document') and '_cal.xml' in att.document:
+                    # Construct full URL from attachment path
+                    if hasattr(att, 'path'):
+                        path = att.path
+                        filing_url = f"https://www.sec.gov{path}" if not path.startswith('http') else path
+                        break
+    except Exception:
+        # If we can't get the filing URL, continue without it
+        pass
+
+    # Return structure with DataFrames instead of dicts
+    return {
+        'balance_sheet_df': bs_df,
+        'income_statement_df': is_df,
+        'cash_flow_statement_df': cf_df,
+        'current_period': current_period,
+        'prior_period': prior_period,
+        'filing_date': filing_date,
+        'form_type': form_type,
+        'filing_reference': f"{form_type} filed {filing_date}",
+        'filing_url': filing_url,
+        'ticker': ticker,
+        'cik': cik,
+    }
+
+
+def dataframes_to_dict_format(
+    balance_sheet_df: Any,
+    income_statement_df: Any,
+    cash_flow_statement_df: Any,
+) -> dict[str, dict[str, Any]]:
+    """
+    Convert DataFrames to dictionary format for verification tools.
+
+    This is a helper function that converts DataFrames to the dict format
+    expected by verification_tools.py.
+
+    Args:
+        balance_sheet_df: Balance sheet DataFrame
+        income_statement_df: Income statement DataFrame
+        cash_flow_statement_df: Cash flow statement DataFrame
+
+    Returns:
+        Dictionary with 'balance_sheet', 'income_statement', 'cash_flow_statement' keys,
+        each containing a dict with '_Current' and '_Prior' suffixed line items.
+    """
+
+    def df_to_dict(df: Any) -> dict[str, Any]:
+        """Convert a single statement DataFrame to dictionary with _Current and _Prior."""
+        line_items = {}
+
+        # Get column names (dates)
+        date_cols = [col for col in df.columns if isinstance(col, str) and '-' in col and col[0].isdigit()]
+
+        if len(date_cols) < 1:
+            return line_items
+
+        current_col = date_cols[0] if len(date_cols) >= 1 else None
+        prior_col = date_cols[1] if len(date_cols) >= 2 else None
+
+        # Iterate through rows
+        for idx, row in df.iterrows():
+            # Skip abstract (header) rows
+            if row.get('abstract', False):
+                continue
+
+            # Get label (human-readable)
+            label = row.get('label', row.get('concept', f'Item_{idx}'))
+
+            # Get current period value
+            if current_col and current_col in row:
+                current_val = row[current_col]
+                if current_val is not None and not (isinstance(current_val, float) and str(current_val) == 'nan'):
+                    line_items[f"{label}_Current"] = current_val
+
+            # Get prior period value
+            if prior_col and prior_col in row:
+                prior_val = row[prior_col]
+                if prior_val is not None and not (isinstance(prior_val, float) and str(prior_val) == 'nan'):
+                    line_items[f"{label}_Prior"] = prior_val
+
+        return line_items
+
+    return {
+        'balance_sheet': df_to_dict(balance_sheet_df),
+        'income_statement': df_to_dict(income_statement_df),
+        'cash_flow_statement': df_to_dict(cash_flow_statement_df),
+    }
 
 
 def _extract_statements_from_dataframes(
@@ -130,6 +230,8 @@ def _extract_statements_from_dataframes(
     filing: Any
 ) -> dict[str, Any]:
     """
+    DEPRECATED: Use dataframes_to_dict_format() instead.
+
     Convert DataFrames from edgartools to dictionaries with _Current and _Prior suffixes.
 
     The DataFrames have columns like:
@@ -214,11 +316,27 @@ def _extract_statements_from_dataframes(
     date_cols = [col for col in bs_df.columns if isinstance(col, str) and '-' in col and col[0].isdigit()]
     period = date_cols[0] if date_cols else 'Unknown'
 
+    # Find XBRL calculation linkbase URL (_cal.xml) for validation
+    filing_url = None
+    try:
+        if hasattr(filing, 'attachments'):
+            for att in filing.attachments:
+                if hasattr(att, 'document') and '_cal.xml' in att.document:
+                    # Construct full URL from attachment path
+                    if hasattr(att, 'path'):
+                        path = att.path
+                        filing_url = f"https://www.sec.gov{path}" if not path.startswith('http') else path
+                        break
+    except Exception:
+        # If we can't get the filing URL, continue without it
+        pass
+
     return {
         'balance_sheet': balance_sheet,
         'income_statement': income_statement,
         'cash_flow_statement': cash_flow_statement,
         'period': period,
         'filing_reference': f"SEC Filing {form_type} dated {filing_date}",
-        'form_type': form_type
+        'form_type': form_type,
+        'filing_url': filing_url
     }
