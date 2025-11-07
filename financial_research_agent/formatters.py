@@ -635,6 +635,8 @@ def format_financial_metrics(metrics: Any, company_name: str) -> str:
     # Extract period dates from the balance sheet data
     bs_data = metrics.balance_sheet
     bs_dates = {}
+
+    # Try to get date information from multiple possible formats
     if isinstance(bs_data, dict):
         # New structure with period_dates
         if 'period_dates' in bs_data:
@@ -645,10 +647,23 @@ def format_financial_metrics(metrics: Any, company_name: str) -> str:
                 'current': bs_data.get('current_period_date', 'Current'),
                 'prior': bs_data.get('prior_period_date', 'Prior')
             }
+        # Check for _Current/_Prior suffixed keys
+        elif any(k.endswith('_Current') for k in bs_data.keys()):
+            # Extract dates from the data structure
+            current_keys = [k for k in bs_data.keys() if k.endswith('_Current')]
+            prior_keys = [k for k in bs_data.keys() if k.endswith('_Prior')]
+            if current_keys and prior_keys:
+                bs_dates = {
+                    'current': bs_data.get('current_period_date', metrics.period),
+                    'prior': bs_data.get('prior_period_date', 'Prior Period')
+                }
 
-    current_date = bs_dates.get('current', 'Current')
+    current_date = bs_dates.get('current', metrics.period if metrics.period else 'Current')
     prior_date = bs_dates.get('prior', 'Prior')
-    has_comparative = prior_date != 'Prior' and prior_date is not None
+
+    # Check if we have _Current/_Prior suffixed data (old format) or comparative data
+    has_comparative = (prior_date not in ['Prior', 'Prior Period', None]) or \
+                      (isinstance(bs_data, dict) and any(k.endswith('_Prior') for k in bs_data.keys()))
 
     output = f"# Financial Metrics & Ratio Analysis\n\n"
     output += f"**Company:** {company_name}  \n"
@@ -1029,8 +1044,8 @@ def format_financial_metrics(metrics: Any, company_name: str) -> str:
     # Data Source
     output += "## Data Source & Verification\n\n"
     output += f"**Filing Reference:** {metrics.filing_reference}  \n"
-    output += "**Period:** {metrics.period}  \n"
-    output += "**Filing Date:** {metrics.filing_date}  \n\n"
+    output += f"**Period:** {metrics.period}  \n"
+    output += f"**Filing Date:** {metrics.filing_date}  \n\n"
     output += "All ratios calculated from XBRL data extracted from official SEC EDGAR filings.  \n"
     output += "Ratios marked with '-' indicate insufficient data for calculation.  \n\n"
 

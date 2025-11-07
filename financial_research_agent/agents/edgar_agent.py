@@ -70,14 +70,22 @@ class EdgarAnalysisSummary(BaseModel):
 # The get_available_edgar_tools documentation function is available as a tool
 # This agent will be created with mcp_servers parameter and the documentation tool
 # Using strict_json_schema=False because dict[str, Any] is not supported in strict mode
-edgar_agent = Agent(
-    name="EdgarFilingAgent",
-    instructions=EDGAR_PROMPT,
-    model=AgentConfig.EDGAR_MODEL,
-    model_settings=AgentConfig.get_model_settings(
-        AgentConfig.EDGAR_MODEL,
-        AgentConfig.EDGAR_REASONING_EFFORT
-    ),
-    output_type=AgentOutputSchema(EdgarAnalysisSummary, strict_json_schema=False),
-    tools=[get_available_edgar_tools],  # Add MCP tools documentation
+
+# Build agent kwargs, only including model_settings if not None
+agent_kwargs = {
+    "name": "EdgarFilingAgent",
+    "instructions": EDGAR_PROMPT,
+    "model": AgentConfig.EDGAR_MODEL,
+    "output_type": AgentOutputSchema(EdgarAnalysisSummary, strict_json_schema=False),
+    "tools": [get_available_edgar_tools],  # Add MCP tools documentation
+}
+
+# Only add model_settings if it's not None (for reasoning models only)
+model_settings = AgentConfig.get_model_settings(
+    AgentConfig.EDGAR_MODEL,
+    AgentConfig.EDGAR_REASONING_EFFORT
 )
+if model_settings is not None:
+    agent_kwargs["model_settings"] = model_settings
+
+edgar_agent = Agent(**agent_kwargs)

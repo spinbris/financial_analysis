@@ -58,6 +58,179 @@ class WebApp:
         self.manager = None
         self.current_session_dir = None
         self.current_reports = {}
+        self.analysis_map = {}  # Map labels to directory paths
+
+    def get_existing_analyses(self):
+        """Get list of existing analysis directories."""
+        output_dir = Path("financial_research_agent/output")
+        if not output_dir.exists():
+            return []
+
+        # Find all analysis directories (format: YYYYMMDD_HHMMSS)
+        dirs = sorted(
+            [d for d in output_dir.iterdir() if d.is_dir() and d.name[0].isdigit()],
+            key=lambda x: x.name,
+            reverse=True  # Most recent first
+        )
+
+        # Extract ticker from 00_query.md or directory metadata
+        analyses = []
+        for dir_path in dirs[:50]:  # Limit to 50 most recent
+            query_file = dir_path / "00_query.md"
+            comprehensive_file = dir_path / "07_comprehensive_report.md"
+
+            # Check if analysis is complete
+            if comprehensive_file.exists():
+                # Try to extract company/ticker from query file
+                ticker = "Unknown"
+                if query_file.exists():
+                    content = query_file.read_text()
+                    # Extract ticker using regex pattern (1-5 uppercase letters, optionally with dots)
+                    import re
+                    # Look for stock ticker patterns: 1-5 uppercase letters, optionally with dots (e.g., BRK.B)
+                    match = re.search(r'\b([A-Z]{1,5}(?:\.[A-Z])?)\b', content)
+                    if match:
+                        ticker = match.group(1)
+
+                analyses.append({
+                    'label': f"{ticker} - {dir_path.name}",
+                    'value': str(dir_path),
+                    'ticker': ticker,
+                    'timestamp': dir_path.name
+                })
+
+        return analyses
+
+    def load_existing_analysis(self, selected_label: str):
+        """Load an existing analysis from disk."""
+        if not selected_label or selected_label not in self.analysis_map:
+            return ("", "", "", "", "")
+
+        analysis_path = self.analysis_map[selected_label]
+        dir_path = Path(analysis_path)
+        if not dir_path.exists():
+            return (
+                "❌ Analysis directory not found",
+                "", "", "", ""
+            )
+
+        # Load report files
+        reports = {}
+        file_map = {
+            'comprehensive': '07_comprehensive_report.md',
+            'statements': '03_financial_statements.md',
+            'metrics': '04_financial_metrics.md',
+            'verification': 'data_verification.md'
+        }
+
+        for key, filename in file_map.items():
+            file_path = dir_path / filename
+            if file_path.exists():
+                reports[key] = file_path.read_text()
+            else:
+                reports[key] = f"*{filename} not found*"
+
+        return (
+            f"✅ Loaded analysis from {dir_path.name}",
+            reports.get('comprehensive', ''),
+            reports.get('statements', ''),
+            reports.get('metrics', ''),
+            reports.get('verification', '')
+        )
+
+    def query_knowledge_base(
+        self,
+        query: str,
+        ticker_filter: str = "",
+        analysis_type: str = "",
+        num_results: int = 5
+    ) -> str:
+        """
+        Query the ChromaDB knowledge base with semantic search and synthesis.
+
+        Uses the RAG synthesis agent to provide coherent, well-cited answers
+        instead of raw document chunks.
+
+        Args:
+            query: Natural language search query
+            ticker_filter: Optional ticker to filter results
+            analysis_type: Optional analysis type filter
+            num_results: Number of results to return
+
+        Returns:
+            Formatted markdown with synthesized answer, sources, and confidence
+        """
+        from financial_research_agent.rag.chroma_manager import FinancialRAGManager
+
+        if not query or query.strip() == "":
+            return "❌ Please enter a search query"
+
+        try:
+            # Initialize ChromaDB
+            rag = FinancialRAGManager(persist_directory="./chroma_db")
+
+            # Prepare filters
+            ticker = ticker_filter.strip().upper() if ticker_filter else None
+            analysis_type_val = analysis_type if analysis_type else None
+
+            # Query with synthesis - this returns a structured RAGResponse
+            response = rag.query_with_synthesis(
+                query=query,
+                ticker=ticker,
+                analysis_type=analysis_type_val,
+                n_results=num_results
+            )
+
+            # Format synthesized response as markdown
+            output = f"# 💡 Answer\n\n"
+
+            # Add filter context
+            if ticker or analysis_type_val:
+                output += "*Filtered by: "
+                filters = []
+                if ticker:
+                    filters.append(f"Ticker: {ticker}")
+                if analysis_type_val:
+                    filters.append(f"Type: {analysis_type_val}")
+                output += ", ".join(filters) + "*\n\n"
+
+            # Main synthesized answer
+            output += response.answer + "\n\n"
+
+            # Confidence indicator
+            output += "---\n\n"
+            confidence_emoji = {"high": "🟢", "medium": "🟡", "low": "🔴"}
+            emoji = confidence_emoji.get(response.confidence.lower(), "⚪")
+            output += f"**Confidence:** {emoji} {response.confidence.upper()}\n\n"
+
+            # Sources cited
+            if response.sources_cited:
+                output += "### 📚 Sources\n\n"
+                for i, source in enumerate(response.sources_cited, 1):
+                    output += f"{i}. {source}\n"
+                output += "\n"
+
+            # Limitations/caveats
+            if response.limitations:
+                output += f"### ⚠️ Limitations\n\n{response.limitations}\n\n"
+
+            # Suggested follow-up questions
+            if response.suggested_followup:
+                output += "### 💭 Suggested Follow-up Questions\n\n"
+                for question in response.suggested_followup:
+                    output += f"- {question}\n"
+                output += "\n"
+
+            output += "---\n\n*💡 Tip: Click a suggested question to explore further*"
+
+            return output
+
+        except FileNotFoundError:
+            return "### 📂 ChromaDB Not Found\n\nThe knowledge base has not been initialized yet.\n\nTo populate it:\n1. Run analyses using the \"Run New Analysis\" mode\n2. Or run: `python scripts/upload_local_to_chroma.py --ticker AAPL --analysis-dir <path>`\n\n See `chroma_db/` directory."
+        except Exception as e:
+            import traceback
+            error_detail = traceback.format_exc()
+            return f"### ❌ Error\n\nFailed to query knowledge base:\n\n```\n{str(e)}\n```\n\n<details>\n<summary>Full Error Details</summary>\n\n```\n{error_detail}\n```\n</details>"
 
     async def generate_analysis(
         self,
@@ -266,14 +439,76 @@ class WebApp:
 
                 # ==================== TAB 1: Query & Analysis Setup ====================
                 with gr.Tab("🔍 Query", id=0):
-                    gr.Markdown("## Enter Your Financial Research Query")
+                    gr.Markdown("## Run New Analysis or View Existing")
 
-                    query_input = gr.Textbox(
-                        label="Research Query",
-                        placeholder="E.g., 'Analyze Tesla's Q3 2025 financial performance'",
-                        lines=3,
-                        elem_classes=["query-box"]
-                    )
+                    # Mode selection
+                    with gr.Row():
+                        mode = gr.Radio(
+                            choices=["Run New Analysis", "View Existing Analysis", "Query Knowledge Base"],
+                            value="Run New Analysis",
+                            label="Mode"
+                        )
+
+                    # New analysis section
+                    with gr.Group(visible=True) as new_analysis_section:
+                        gr.Markdown("### Enter Your Financial Research Query")
+                        query_input = gr.Textbox(
+                            label="Research Query",
+                            placeholder="E.g., 'Analyze Tesla's Q3 2025 financial performance'",
+                            lines=3,
+                            elem_classes=["query-box"]
+                        )
+
+                    # Existing analysis section
+                    with gr.Group(visible=False) as existing_analysis_section:
+                        gr.Markdown("### Select an Existing Analysis")
+                        existing_dropdown = gr.Dropdown(
+                            label="Previous Analyses",
+                            choices=[],
+                            interactive=True
+                        )
+                        load_btn = gr.Button("Load Selected Analysis", variant="primary")
+
+                    # Knowledge base query section
+                    with gr.Group(visible=False) as kb_query_section:
+                        gr.Markdown("### 🔍 AI-Powered Knowledge Base Q&A")
+                        gr.Markdown("*Ask questions about any indexed company and get synthesized, well-cited answers powered by RAG*")
+
+                        with gr.Row():
+                            with gr.Column(scale=3):
+                                kb_query_input = gr.Textbox(
+                                    label="Search Query",
+                                    placeholder="E.g., 'What are Apple's main revenue sources?' or 'Compare cloud strategies'",
+                                    lines=2
+                                )
+                            with gr.Column(scale=1):
+                                kb_num_results = gr.Slider(
+                                    minimum=1,
+                                    maximum=10,
+                                    value=5,
+                                    step=1,
+                                    label="Number of Results"
+                                )
+
+                        with gr.Row():
+                            kb_ticker_filter = gr.Textbox(
+                                label="Filter by Ticker (optional)",
+                                placeholder="e.g., AAPL",
+                                scale=1
+                            )
+                            kb_analysis_type = gr.Dropdown(
+                                label="Filter by Analysis Type (optional)",
+                                choices=["", "risk", "financial_metrics", "financial_statements", "comprehensive", "fundamental"],
+                                value="",
+                                scale=1
+                            )
+
+                        kb_search_btn = gr.Button("🔍 Search Knowledge Base", variant="primary", size="lg")
+
+                        kb_results_output = gr.Markdown(
+                            label="Search Results",
+                            value="*Enter a query and click Search to find relevant information*"
+                        )
 
                     gr.Markdown("### 📋 Quick Query Templates")
                     gr.Markdown("*Click a template to auto-fill your query*")
@@ -444,6 +679,53 @@ class WebApp:
                     metrics_output,
                     verification_output
                 ]
+            )
+
+            # Mode switcher - show/hide sections based on mode
+            def toggle_mode(selected_mode):
+                return {
+                    new_analysis_section: gr.update(visible=(selected_mode == "Run New Analysis")),
+                    existing_analysis_section: gr.update(visible=(selected_mode == "View Existing Analysis")),
+                    kb_query_section: gr.update(visible=(selected_mode == "Query Knowledge Base"))
+                }
+
+            mode.change(
+                fn=toggle_mode,
+                inputs=[mode],
+                outputs=[new_analysis_section, existing_analysis_section, kb_query_section]
+            )
+
+            # Load button for existing analyses
+            load_btn.click(
+                fn=self.load_existing_analysis,
+                inputs=[existing_dropdown],
+                outputs=[
+                    status_output,
+                    comprehensive_output,
+                    statements_output,
+                    metrics_output,
+                    verification_output
+                ]
+            )
+
+            # Knowledge base search button
+            kb_search_btn.click(
+                fn=self.query_knowledge_base,
+                inputs=[kb_query_input, kb_ticker_filter, kb_analysis_type, kb_num_results],
+                outputs=[kb_results_output]
+            )
+
+            # Populate dropdown on app load
+            def load_dropdown_choices():
+                analyses = self.get_existing_analyses()
+                choices = [a['label'] for a in analyses]
+                # Store mapping for later retrieval
+                self.analysis_map = {a['label']: a['value'] for a in analyses}
+                return gr.update(choices=choices, value=choices[0] if choices else None)
+
+            app.load(
+                fn=load_dropdown_choices,
+                outputs=[existing_dropdown]
             )
 
         return app

@@ -59,12 +59,12 @@ class FinancialRAGManager:
         if not output_dir.exists():
             raise FileNotFoundError(f"Output directory not found: {output_dir}")
 
-        # Map of analysis types to filenames
+        # Map of analysis types to filenames (updated to match actual output)
         analysis_files = {
-            "comprehensive": "01_comprehensive_analysis.md",
-            "financial_statements": "02_financial_statements.md",
+            "comprehensive": "07_comprehensive_report.md",
+            "financial_statements": "03_financial_statements.md",
             "financial_metrics": "04_financial_metrics.md",
-            "fundamental": "05_fundamental_analysis.md",
+            "financial_analysis": "05_financial_analysis.md",
             "risk": "06_risk_analysis.md"
         }
 
@@ -88,8 +88,9 @@ class FinancialRAGManager:
             chunks = self._chunk_markdown(content, analysis_type, metadata)
 
             if chunks:
-                # Add to ChromaDB
-                self.collection.add(
+                # Use upsert to handle duplicates (will update if ID exists, insert if new)
+                # This allows re-indexing the same ticker without creating duplicates
+                self.collection.upsert(
                     documents=[chunk["text"] for chunk in chunks],
                     metadatas=[chunk["metadata"] for chunk in chunks],
                     ids=[chunk["id"] for chunk in chunks]
@@ -253,6 +254,55 @@ class FinancialRAGManager:
         )
 
         return results
+
+    def query_with_synthesis(
+        self,
+        query: str,
+        ticker: str | None = None,
+        analysis_type: str | None = None,
+        n_results: int = 5
+    ) -> 'RAGResponse':
+        """
+        Query ChromaDB and synthesize results into a coherent answer.
+
+        This is the recommended method for user-facing Q&A, as it:
+        - Retrieves relevant chunks via semantic search
+        - Synthesizes them into a cohesive, well-cited answer
+        - Provides confidence assessment and limitations
+
+        Args:
+            query: Natural language query
+            ticker: Optional ticker filter
+            analysis_type: Optional analysis type filter
+            n_results: Number of results to retrieve (default: 5)
+
+        Returns:
+            RAGResponse with synthesized answer, sources, confidence, and limitations
+
+        Example:
+            >>> rag_manager = FinancialRAGManager()
+            >>> response = rag_manager.query_with_synthesis(
+            ...     "What were Apple's Q3 revenues?",
+            ...     ticker="AAPL"
+            ... )
+            >>> print(response.answer)
+            >>> print(f"Confidence: {response.confidence}")
+            >>> print(f"Sources: {', '.join(response.sources_cited)}")
+        """
+        from .synthesis_agent import synthesize_rag_results
+
+        # Get raw search results from ChromaDB
+        search_results = self.query(
+            query=query,
+            ticker=ticker,
+            analysis_type=analysis_type,
+            n_results=n_results
+        )
+
+        # Synthesize into coherent response
+        response = synthesize_rag_results(query, search_results)
+
+        return response
 
     def compare_peers(
         self,

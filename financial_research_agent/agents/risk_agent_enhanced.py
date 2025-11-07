@@ -178,14 +178,21 @@ class ComprehensiveRiskAnalysis(BaseModel):
     """List of SEC filings cited (e.g., '10-K filed 2024-11-01, Accession: ...')."""
 
 
-risk_agent_enhanced = Agent(
-    model=AgentConfig.RISK_MODEL,
-    name="ComprehensiveRiskAnalystAgent",
-    instructions=RISK_PROMPT,
-    model_settings=AgentConfig.get_model_settings(
-        AgentConfig.RISK_MODEL,
-        AgentConfig.RISK_REASONING_EFFORT
-    ),
-    tools=[brave_search],  # Add web search for supplemental research on risks
-    output_type=ComprehensiveRiskAnalysis,
+# Build agent kwargs, only including model_settings if not None
+agent_kwargs = {
+    "model": AgentConfig.RISK_MODEL,
+    "name": "ComprehensiveRiskAnalystAgent",
+    "instructions": RISK_PROMPT,
+    "tools": [brave_search],  # Add web search for supplemental research on risks
+    "output_type": ComprehensiveRiskAnalysis,
+}
+
+# Only add model_settings if it's not None (for reasoning models only)
+model_settings = AgentConfig.get_model_settings(
+    AgentConfig.RISK_MODEL,
+    AgentConfig.RISK_REASONING_EFFORT
 )
+if model_settings is not None:
+    agent_kwargs["model_settings"] = model_settings
+
+risk_agent_enhanced = Agent(**agent_kwargs)

@@ -52,13 +52,20 @@ class FinancialSearchPlan(BaseModel):
     """A list of searches to perform."""
 
 
-planner_agent = Agent(
-    name="FinancialPlannerAgent",
-    instructions=PROMPT,
-    model=AgentConfig.PLANNER_MODEL,
-    model_settings=AgentConfig.get_model_settings(
-        AgentConfig.PLANNER_MODEL,
-        AgentConfig.PLANNER_REASONING_EFFORT
-    ),
-    output_type=FinancialSearchPlan,
+# Build agent kwargs, only including model_settings if not None
+agent_kwargs = {
+    "name": "FinancialPlannerAgent",
+    "instructions": PROMPT,
+    "model": AgentConfig.PLANNER_MODEL,
+    "output_type": FinancialSearchPlan,
+}
+
+# Only add model_settings if it's not None (for reasoning models only)
+model_settings = AgentConfig.get_model_settings(
+    AgentConfig.PLANNER_MODEL,
+    AgentConfig.PLANNER_REASONING_EFFORT
 )
+if model_settings is not None:
+    agent_kwargs["model_settings"] = model_settings
+
+planner_agent = Agent(**agent_kwargs)

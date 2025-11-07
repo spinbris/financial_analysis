@@ -170,7 +170,7 @@ def index_local_analysis(output_dir_path: str, ticker: str) -> dict:
     image=image,
     volumes={"/data": chroma_volume},
     secrets=secrets,
-    schedule=modal.Cron("0 2 * * *"),  # Run at 2 AM daily
+    # schedule=modal.Cron("0 2 * * *"),  # DISABLED: Run at 2 AM daily (prototype mode)
 )
 def daily_batch_update():
     """
@@ -293,14 +293,31 @@ def web_app():
         """
         Trigger new analysis for a company (async).
 
-        Users can optionally provide their own API keys. If keys are provided,
-        the analysis runs with their keys (they pay for compute/API costs).
-        Otherwise, uses admin keys from Modal secrets (you pay).
-        """
-        # Determine who's paying
-        using_user_keys = bool(req.openai_api_key)
+        REQUIRES user to provide their own API keys. This is a proof-of-concept
+        service - users must supply their own OpenAI API key to generate analyses.
 
-        # Run analysis in background
+        The admin only runs analyses for demonstration purposes. To generate a new
+        analysis, you must provide your own openai_api_key in the request body.
+        """
+        # REQUIRE user API keys for public access
+        if not req.openai_api_key:
+            raise HTTPException(
+                status_code=402,  # Payment Required
+                detail={
+                    "error": "API key required",
+                    "message": "This service requires you to provide your own OpenAI API key. "
+                               "Analyses you generate with your key will be indexed in the shared "
+                               "knowledge base for all users to query.",
+                    "example": {
+                        "ticker": "AAPL",
+                        "openai_api_key": "sk-proj-...",
+                        "brave_api_key": "BSA... (optional)",
+                        "force_refresh": False
+                    }
+                }
+            )
+
+        # Run analysis in background with user's keys
         background_tasks.add_task(
             analyze_company.remote,
             ticker=req.ticker,
@@ -312,9 +329,11 @@ def web_app():
         return {
             "status": "queued",
             "ticker": req.ticker,
-            "using_user_keys": using_user_keys,
-            "message": f"Analysis for {req.ticker} queued. Check back in 5-10 minutes.",
-            "cost_note": "Using your API keys" if using_user_keys else "Using admin keys (limited analyses available)"
+            "using_user_keys": True,
+            "message": f"Analysis for {req.ticker} queued with your API key. Check back in 5-10 minutes.",
+            "cost_note": f"Analysis will cost ~$0.08 (charged to your OpenAI account)",
+            "query_endpoint": "/api/query",
+            "companies_endpoint": "/api/companies"
         }
 
     @app.post("/api/compare")

@@ -81,6 +81,10 @@ def verify_financial_data_completeness(statements_data: dict[str, Any]) -> dict[
     minority_key = None
     redeemable_key = None
 
+    # For cases where Total Liabilities is missing, track individual liability components
+    current_liabilities_key = None
+    liability_component_keys = []
+
     for key in bs.keys():
         key_lower = key.lower()
         # Check if this is a Current period key (case-insensitive)
@@ -88,42 +92,117 @@ def verify_financial_data_completeness(statements_data: dict[str, Any]) -> dict[
             continue
 
         if 'total' in key_lower and 'asset' in key_lower:
-            assets_key = key
+            # Exclude "Total Liabilities and Stockholders' Equity" when looking for assets
+            if 'liabilit' not in key_lower:
+                assets_key = key
         elif 'total' in key_lower and 'liabilit' in key_lower:
-            liabilities_key = key
+            # CRITICAL: Exclude "Total Liabilities and Stockholders' Equity"
+            # We want ONLY "Total Liabilities" (without equity)
+            if 'equity' not in key_lower and 'stockholder' not in key_lower and 'shareholder' not in key_lower:
+                # Check if this is "Total Current Liabilities" (we'll need this for Amazon-style balance sheets)
+                if 'current' in key_lower:
+                    current_liabilities_key = key
+                else:
+                    liabilities_key = key
         elif ('stockholder' in key_lower or 'shareholder' in key_lower) and 'equity' in key_lower:
-            equity_key = key
+            # Exclude "Total Liabilities and Stockholders' Equity" when looking for equity
+            if 'liabilit' not in key_lower:
+                equity_key = key
         elif 'minority' in key_lower and 'interest' in key_lower:
             minority_key = key
         elif 'redeemable' in key_lower and 'noncontrolling' in key_lower:
             redeemable_key = key
+        # Collect non-current liability components (for companies like Amazon that don't have "Total Liabilities")
+        elif any(term in key_lower for term in ['lease liabilit', 'long term debt', 'long-term debt', 'other non current liabilit', 'other liabilit']) and 'current' not in key_lower:
+            # Only add if it's a liability line and not already counted as current liabilities
+            liability_component_keys.append(key)
 
-    if assets_key and liabilities_key and equity_key:
+    # If no "Total Liabilities" found but we have "Total Current Liabilities" and other components,
+    # calculate total liabilities by summing components
+    if not liabilities_key and current_liabilities_key and liability_component_keys and equity_key:
+        total_liabilities = bs[current_liabilities_key]
+        for component_key in liability_component_keys:
+            total_liabilities += bs[component_key]
+        # Create synthetic check
+        if assets_key:
+            assets = bs[assets_key]
+            equity = bs[equity_key]
+            minority = bs.get(minority_key, 0) if minority_key else 0
+            redeemable = bs.get(redeemable_key, 0) if redeemable_key else 0
+
+            # Check if it balances
+            total_check1 = total_liabilities + equity
+            diff1 = abs(assets - total_check1)
+            tolerance = assets * 0.001  # 0.1%
+
+            if diff1 <= tolerance:
+                stats['balance_sheet_verified'] = True
+            else:
+                # Try adding minority and redeemable
+                total_equity = equity + minority + redeemable
+                total = total_liabilities + total_equity
+                diff = abs(assets - total)
+
+                if diff > tolerance:
+                    # Build component breakdown for error message
+                    component_details = f"  Total Current Liabilities: ${bs[current_liabilities_key]:,.0f}\n"
+                    for comp_key in liability_component_keys:
+                        comp_name = comp_key.replace('_Current', '')
+                        component_details += f"  {comp_name}: ${bs[comp_key]:,.0f}\n"
+
+                    errors.append(
+                        f"Balance sheet equation does not balance:\n"
+                        f"  Assets: ${assets:,.0f}\n"
+                        f"{component_details}"
+                        f"  Calculated Total Liabilities: ${total_liabilities:,.0f}\n"
+                        f"  Stockholders' Equity: ${equity:,.0f}\n"
+                        f"  Minority Interest: ${minority:,.0f}\n"
+                        f"  Redeemable NCI: ${redeemable:,.0f}\n"
+                        f"  Total L+E: ${total:,.0f}\n"
+                        f"  Difference: ${diff:,.0f} ({diff/assets*100:.3f}% of Assets)\n"
+                        f"  Exceeds tolerance of ${tolerance:,.0f} (0.1%)"
+                    )
+                else:
+                    stats['balance_sheet_verified'] = True
+    elif assets_key and liabilities_key and equity_key:
         assets = bs[assets_key]
         liabilities = bs[liabilities_key]
         equity = bs[equity_key]
         minority = bs.get(minority_key, 0) if minority_key else 0
         redeemable = bs.get(redeemable_key, 0) if redeemable_key else 0
 
-        total_equity = equity + minority + redeemable
-        total = liabilities + total_equity
-        diff = abs(assets - total)
+        # Total Liabilities already includes all liabilities
+        # The equation is: Assets = Total Liabilities + Total Equity
+        # Where Total Equity = Stockholders' Equity + Minority Interest + Redeemable NCI
+        # BUT: If equity_key is "Total Stockholders' Equity" it may already include minority/redeemable
+        # Check if liabilities + equity alone balances first (most common case)
+        total_check1 = liabilities + equity
+        diff1 = abs(assets - total_check1)
         tolerance = assets * 0.001  # 0.1%
 
-        if diff > tolerance:
-            errors.append(
-                f"Balance sheet equation does not balance:\n"
-                f"  Assets: ${assets:,.0f}\n"
-                f"  Liabilities: ${liabilities:,.0f}\n"
-                f"  Stockholders' Equity: ${equity:,.0f}\n"
-                f"  Minority Interest: ${minority:,.0f}\n"
-                f"  Redeemable NCI: ${redeemable:,.0f}\n"
-                f"  Total L+E: ${total:,.0f}\n"
-                f"  Difference: ${diff:,.0f} ({diff/assets*100:.3f}% of Assets)\n"
-                f"  Exceeds tolerance of ${tolerance:,.0f} (0.1%)"
-            )
-        else:
+        # If that balances, equity already includes all equity components
+        if diff1 <= tolerance:
             stats['balance_sheet_verified'] = True
+        else:
+            # Try adding minority and redeemable separately
+            total_equity = equity + minority + redeemable
+            total = liabilities + total_equity
+            diff = abs(assets - total)
+
+            if diff > tolerance:
+                errors.append(
+                    f"Balance sheet equation does not balance:\n"
+                    f"  Assets: ${assets:,.0f}\n"
+                    f"  Liabilities: ${liabilities:,.0f}\n"
+                    f"  Stockholders' Equity: ${equity:,.0f}\n"
+                    f"  Minority Interest: ${minority:,.0f}\n"
+                    f"  Redeemable NCI: ${redeemable:,.0f}\n"
+                    f"  Total L+E: ${total:,.0f}\n"
+                    f"  Difference: ${diff:,.0f} ({diff/assets*100:.3f}% of Assets)\n"
+                    f"  Exceeds tolerance of ${tolerance:,.0f} (0.1%)"
+                )
+            else:
+                stats['balance_sheet_verified'] = True
     else:
         warnings.append(f"Could not verify balance sheet equation - missing key line items (Assets: {assets_key}, Liabilities: {liabilities_key}, Equity: {equity_key})")
 

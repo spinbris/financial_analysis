@@ -123,13 +123,20 @@ class VerificationResult(BaseModel):
     """If not verified, describe the main issues or concerns."""
 
 
-verifier_agent = Agent(
-    name="VerificationAgent",
-    instructions=VERIFIER_PROMPT,
-    model=AgentConfig.VERIFIER_MODEL,
-    model_settings=AgentConfig.get_model_settings(
-        AgentConfig.VERIFIER_MODEL,
-        AgentConfig.VERIFIER_REASONING_EFFORT
-    ),
-    output_type=VerificationResult,
+# Build agent kwargs, only including model_settings if not None
+agent_kwargs = {
+    "name": "VerificationAgent",
+    "instructions": VERIFIER_PROMPT,
+    "model": AgentConfig.VERIFIER_MODEL,
+    "output_type": VerificationResult,
+}
+
+# Only add model_settings if it's not None (for reasoning models only)
+model_settings = AgentConfig.get_model_settings(
+    AgentConfig.VERIFIER_MODEL,
+    AgentConfig.VERIFIER_REASONING_EFFORT
 )
+if model_settings is not None:
+    agent_kwargs["model_settings"] = model_settings
+
+verifier_agent = Agent(**agent_kwargs)

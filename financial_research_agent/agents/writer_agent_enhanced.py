@@ -184,13 +184,20 @@ class ComprehensiveFinancialReport(BaseModel):
     """3-5 specific questions for further research or monitoring."""
 
 
-writer_agent_enhanced = Agent(
-    name="ComprehensiveFinancialWriterAgent",
-    instructions=WRITER_PROMPT,
-    model=AgentConfig.WRITER_MODEL,
-    model_settings=AgentConfig.get_model_settings(
-        AgentConfig.WRITER_MODEL,
-        AgentConfig.WRITER_REASONING_EFFORT
-    ),
-    output_type=ComprehensiveFinancialReport,
+# Build agent kwargs, only including model_settings if not None
+agent_kwargs = {
+    "name": "ComprehensiveFinancialWriterAgent",
+    "instructions": WRITER_PROMPT,
+    "model": AgentConfig.WRITER_MODEL,
+    "output_type": ComprehensiveFinancialReport,
+}
+
+# Only add model_settings if it's not None (for reasoning models only)
+model_settings = AgentConfig.get_model_settings(
+    AgentConfig.WRITER_MODEL,
+    AgentConfig.WRITER_REASONING_EFFORT
 )
+if model_settings is not None:
+    agent_kwargs["model_settings"] = model_settings
+
+writer_agent_enhanced = Agent(**agent_kwargs)

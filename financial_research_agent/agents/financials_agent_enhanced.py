@@ -231,13 +231,21 @@ class ComprehensiveFinancialAnalysis(BaseModel):
 
 
 # Using strict_json_schema=False because dict[str, Any] is not supported in strict mode
-financials_agent_enhanced = Agent(
-    model=AgentConfig.FINANCIALS_MODEL,
-    name="ComprehensiveFinancialsAnalystAgent",
-    instructions=FINANCIALS_PROMPT,
-    model_settings=AgentConfig.get_model_settings(
-        AgentConfig.FINANCIALS_MODEL,
-        AgentConfig.FINANCIALS_REASONING_EFFORT
-    ),
-    output_type=AgentOutputSchema(ComprehensiveFinancialAnalysis, strict_json_schema=False),
+
+# Build agent kwargs, only including model_settings if not None
+agent_kwargs = {
+    "model": AgentConfig.FINANCIALS_MODEL,
+    "name": "ComprehensiveFinancialsAnalystAgent",
+    "instructions": FINANCIALS_PROMPT,
+    "output_type": AgentOutputSchema(ComprehensiveFinancialAnalysis, strict_json_schema=False),
+}
+
+# Only add model_settings if it's not None (for reasoning models only)
+model_settings = AgentConfig.get_model_settings(
+    AgentConfig.FINANCIALS_MODEL,
+    AgentConfig.FINANCIALS_REASONING_EFFORT
 )
+if model_settings is not None:
+    agent_kwargs["model_settings"] = model_settings
+
+financials_agent_enhanced = Agent(**agent_kwargs)

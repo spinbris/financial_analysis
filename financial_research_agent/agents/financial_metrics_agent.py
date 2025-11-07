@@ -360,14 +360,22 @@ class FinancialMetrics(BaseModel):
 
 # Note: The MCP server will be attached at runtime in the manager
 # Using strict_json_schema=False because dict[str, Any] is not supported in strict mode
-financial_metrics_agent = Agent(
-    name="FinancialMetricsAgent",
-    instructions=FINANCIAL_METRICS_PROMPT,
-    model=AgentConfig.METRICS_MODEL,
-    model_settings=AgentConfig.get_model_settings(
-        AgentConfig.METRICS_MODEL,
-        AgentConfig.METRICS_REASONING_EFFORT
-    ),
-    output_type=AgentOutputSchema(FinancialMetrics, strict_json_schema=False),
-    tools=[get_available_edgar_tools],  # Add MCP tools documentation
+
+# Build agent kwargs, only including model_settings if not None
+agent_kwargs = {
+    "name": "FinancialMetricsAgent",
+    "instructions": FINANCIAL_METRICS_PROMPT,
+    "model": AgentConfig.METRICS_MODEL,
+    "output_type": AgentOutputSchema(FinancialMetrics, strict_json_schema=False),
+    "tools": [get_available_edgar_tools],  # Add MCP tools documentation
+}
+
+# Only add model_settings if it's not None (for reasoning models only)
+model_settings = AgentConfig.get_model_settings(
+    AgentConfig.METRICS_MODEL,
+    AgentConfig.METRICS_REASONING_EFFORT
 )
+if model_settings is not None:
+    agent_kwargs["model_settings"] = model_settings
+
+financial_metrics_agent = Agent(**agent_kwargs)
