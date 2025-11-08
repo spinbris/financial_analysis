@@ -377,15 +377,140 @@ class FinancialRAGManager:
 
         metadata = results["metadatas"][0]
 
-        # Calculate days since analysis
-        # (simplified - would need to parse actual date from metadata)
-        days_old = 999  # Placeholder
+        # Extract date from chunk_id (format: TICKER_type_s0_c0_YYYYMMDD)
+        chunk_id = results.get("ids", [[]])[0][0] if results.get("ids") else ""
+        date_match = re.search(r'_(\d{8})$', chunk_id)
+
+        if date_match:
+            date_str = date_match.group(1)
+            analysis_date = datetime.strptime(date_str, "%Y%m%d")
+            days_old = (datetime.now() - analysis_date).days
+        else:
+            days_old = 999  # Unknown age
 
         return {
             "ticker": ticker,
             "analysis_date": metadata.get("period", "Unknown"),
             "days_old": days_old
         }
+
+    def get_companies_with_status(self) -> list[dict]:
+        """
+        Get all indexed companies with status metadata.
+
+        Returns:
+            [
+                {
+                    "ticker": "AAPL",
+                    "company": "Apple Inc.",
+                    "period": "Q3 FY2024",
+                    "filing": "10-Q",
+                    "days_old": 2,
+                    "status": "fresh",  # "fresh" | "aging" | "stale"
+                    "last_updated": "2025-11-06"
+                },
+                ...
+            ]
+        """
+        all_docs = self.collection.get()
+
+        companies_map = {}
+        for i, metadata in enumerate(all_docs["metadatas"]):
+            ticker = metadata.get("ticker")
+            if not ticker or ticker in companies_map:
+                continue
+
+            # Extract date from chunk_id (format: TICKER_type_s0_c0_YYYYMMDD)
+            chunk_id = all_docs["ids"][i] if i < len(all_docs["ids"]) else ""
+            date_match = re.search(r'_(\d{8})$', chunk_id)
+
+            if date_match:
+                date_str = date_match.group(1)
+                analysis_date = datetime.strptime(date_str, "%Y%m%d")
+                days_old = (datetime.now() - analysis_date).days
+                last_updated = analysis_date.strftime("%Y-%m-%d")
+            else:
+                days_old = 999  # Unknown age
+                last_updated = "Unknown"
+
+            companies_map[ticker] = {
+                "ticker": ticker,
+                "company": metadata.get("company", ""),
+                "period": metadata.get("period", ""),
+                "filing": metadata.get("filing", "").split()[0] if metadata.get("filing") else "",
+                "days_old": days_old,
+                "status": self._get_staleness_status(days_old, ticker),
+                "last_updated": last_updated
+            }
+
+        return sorted(companies_map.values(), key=lambda x: x["days_old"])
+
+    def check_company_status(self, ticker: str) -> dict:
+        """
+        Check if a specific company is in KB and its status.
+
+        Args:
+            ticker: Stock ticker symbol
+
+        Returns:
+            {
+                "in_kb": bool,
+                "ticker": str,
+                "status": "missing" | "fresh" | "aging" | "stale",
+                "days_old": int | None,
+                "metadata": dict | None
+            }
+        """
+        all_companies = self.get_companies_with_status()
+
+        for company in all_companies:
+            if company["ticker"] == ticker.upper():
+                return {
+                    "in_kb": True,
+                    "ticker": ticker.upper(),
+                    "status": company["status"],
+                    "days_old": company["days_old"],
+                    "metadata": company
+                }
+
+        # Not found
+        return {
+            "in_kb": False,
+            "ticker": ticker.upper(),
+            "status": "missing",
+            "days_old": None,
+            "metadata": None
+        }
+
+    def _get_staleness_status(self, days_old: int, ticker: str) -> str:
+        """
+        Determine staleness status based on age and ticker volatility.
+
+        Args:
+            days_old: Days since analysis
+            ticker: Stock ticker
+
+        Returns:
+            "fresh" | "aging" | "stale"
+        """
+        # High-volatility tickers (simplified - can be enhanced with actual volatility data)
+        high_volatility = ticker.upper() in ["TSLA", "NVDA", "AMD", "PLTR", "RIVN", "LCID"]
+
+        if high_volatility:
+            if days_old <= 7:
+                return "fresh"
+            elif days_old <= 30:
+                return "aging"
+            else:
+                return "stale"
+        else:
+            # Stable blue chips
+            if days_old <= 30:
+                return "fresh"
+            elif days_old <= 90:
+                return "aging"
+            else:
+                return "stale"
 
     def reset(self):
         """Reset/clear the entire collection (use with caution)."""

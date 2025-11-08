@@ -22,7 +22,7 @@ def get_planner_prompt():
 
     return f"""You are a financial research planner. Given a request for financial analysis,
 produce a set of web searches to gather the context needed. Aim for recent
-headlines, earnings calls or 10-K snippets, analyst commentary, and industry background.
+headlines, earnings calls or 10-K snippets, analyst commentary and industry background.
 Output between 5 and 15 search terms to query for.
 
 IMPORTANT: Today's date is {now.strftime('%B %d, %Y')}. Focus your searches on the most recent data available.

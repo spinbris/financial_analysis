@@ -52,9 +52,15 @@ Synthesize the excerpts into a clear, accurate, and well-cited answer that:
 - For data from multiple sources, cite all: "[AAPL - Financial Analysis, Q3 2024; AAPL - Risk Analysis, Q3 2024]"
 
 ### Confidence Assessment:
-- **High**: Multiple consistent sources, recent data, complete information
-- **Medium**: Single source, or older data, or partial information
-- **Low**: Conflicting sources, very old data, or significant gaps
+- **High**: Multiple consistent sources, recent data (≤30 days), complete information
+- **Medium**: Single source, or aging data (30-90 days), or partial information
+- **Low**: Conflicting sources, stale data (>90 days), or significant gaps
+
+### Data Age Assessment:
+- Check the relevance score and metadata to estimate data age
+- If data appears to be >30 days old, include a `data_age_warning` field
+- Example: "Analysis data is approximately 45 days old. More recent SEC filings may be available."
+- For time-sensitive queries (e.g., "latest", "recent", "current"), be especially vigilant about data age
 
 ### Financial Data Priorities:
 1. **Most authoritative**: Financial statements (balance_sheet, income_statement, cash_flow)
@@ -89,6 +95,11 @@ class RAGResponse(BaseModel):
 
     confidence: str = Field(
         description="Confidence level in the answer: 'high', 'medium', or 'low'"
+    )
+
+    data_age_warning: str | None = Field(
+        default=None,
+        description="Warning about data age if analysis is stale (e.g., 'Data is 30 days old')"
     )
 
     limitations: str | None = Field(

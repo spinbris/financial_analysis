@@ -85,12 +85,17 @@ class WebApp:
                 ticker = "Unknown"
                 if query_file.exists():
                     content = query_file.read_text()
-                    # Extract ticker using regex pattern (1-5 uppercase letters, optionally with dots)
-                    import re
-                    # Look for stock ticker patterns: 1-5 uppercase letters, optionally with dots (e.g., BRK.B)
-                    match = re.search(r'\b([A-Z]{1,5}(?:\.[A-Z])?)\b', content)
-                    if match:
-                        ticker = match.group(1)
+                    # Use the sophisticated ticker extraction from utils.py
+                    from financial_research_agent.rag.utils import extract_tickers_from_query
+                    detected_tickers = extract_tickers_from_query(content)
+                    if detected_tickers:
+                        ticker = detected_tickers[0]  # Use first detected ticker
+                    else:
+                        # Fallback to regex pattern for explicit tickers (e.g., "AAPL", "BRK.B")
+                        import re
+                        match = re.search(r'\b([A-Z]{1,5}(?:\.[A-Z])?)\b', content)
+                        if match:
+                            ticker = match.group(1)
 
                 analyses.append({
                     'label': f"{ticker} - {dir_path.name}",
@@ -103,15 +108,19 @@ class WebApp:
 
     def load_existing_analysis(self, selected_label: str):
         """Load an existing analysis from disk."""
+        from financial_research_agent.rag.utils import format_analysis_age
+        import json
+        import plotly.graph_objects as go
+
         if not selected_label or selected_label not in self.analysis_map:
-            return ("", "", "", "", "")
+            return ("", "", "", "", "", "", "", None, None)
 
         analysis_path = self.analysis_map[selected_label]
         dir_path = Path(analysis_path)
         if not dir_path.exists():
             return (
                 "❌ Analysis directory not found",
-                "", "", "", ""
+                "", "", "", "", "", "", None, None
             )
 
         # Load report files
@@ -120,6 +129,8 @@ class WebApp:
             'comprehensive': '07_comprehensive_report.md',
             'statements': '03_financial_statements.md',
             'metrics': '04_financial_metrics.md',
+            'financial_analysis': '05_financial_analysis.md',
+            'risk_analysis': '06_risk_analysis.md',
             'verification': 'data_verification.md'
         }
 
@@ -130,12 +141,61 @@ class WebApp:
             else:
                 reports[key] = f"*{filename} not found*"
 
+        # Load chart data (if available) and convert to Plotly Figure objects
+        margin_chart_fig = None
+        metrics_chart_fig = None
+        risk_chart_fig = None
+
+        margin_chart_path = dir_path / "chart_margins.json"
+        if margin_chart_path.exists():
+            try:
+                with open(margin_chart_path, 'r') as f:
+                    margin_chart_data = json.load(f)
+                # Convert JSON dict to Plotly Figure
+                margin_chart_fig = go.Figure(margin_chart_data)
+            except Exception as e:
+                print(f"Warning: Failed to load margin chart: {e}")
+
+        metrics_chart_path = dir_path / "chart_metrics.json"
+        if metrics_chart_path.exists():
+            try:
+                with open(metrics_chart_path, 'r') as f:
+                    metrics_chart_data = json.load(f)
+                # Convert JSON dict to Plotly Figure
+                metrics_chart_fig = go.Figure(metrics_chart_data)
+            except Exception as e:
+                print(f"Warning: Failed to load metrics chart: {e}")
+
+        risk_chart_path = dir_path / "chart_risk_categories.json"
+        if risk_chart_path.exists():
+            try:
+                with open(risk_chart_path, 'r') as f:
+                    risk_chart_data = json.load(f)
+                # Convert JSON dict to Plotly Figure
+                risk_chart_fig = go.Figure(risk_chart_data)
+            except Exception as e:
+                print(f"Warning: Failed to load risk chart: {e}")
+
+        # Format timestamp with human-readable date
+        age_info = format_analysis_age(dir_path.name)
+
+        status_msg = f"""✅ Loaded analysis successfully!
+
+**Analysis Date:** {age_info['formatted']} {age_info['status_emoji']}
+**Session ID:** {dir_path.name}
+"""
+
         return (
-            f"✅ Loaded analysis from {dir_path.name}",
+            status_msg,
             reports.get('comprehensive', ''),
             reports.get('statements', ''),
             reports.get('metrics', ''),
-            reports.get('verification', '')
+            reports.get('financial_analysis', ''),
+            reports.get('risk_analysis', ''),
+            reports.get('verification', ''),
+            margin_chart_fig,
+            metrics_chart_fig,
+            risk_chart_fig
         )
 
     def query_knowledge_base(
@@ -144,7 +204,7 @@ class WebApp:
         ticker_filter: str = "",
         analysis_type: str = "",
         num_results: int = 5
-    ) -> str:
+    ):
         """
         Query the ChromaDB knowledge base with semantic search and synthesis.
 
@@ -157,23 +217,68 @@ class WebApp:
             analysis_type: Optional analysis type filter
             num_results: Number of results to return
 
-        Returns:
+        Yields:
             Formatted markdown with synthesized answer, sources, and confidence
         """
         from financial_research_agent.rag.chroma_manager import FinancialRAGManager
+        from financial_research_agent.rag.utils import extract_tickers_from_query
 
         if not query or query.strip() == "":
-            return "❌ Please enter a search query"
+            yield "❌ Please enter a search query"
+            return
+
+        # Show initial progress
+        yield "🔍 Analyzing query..."
 
         try:
             # Initialize ChromaDB
             rag = FinancialRAGManager(persist_directory="./chroma_db")
+
+            # Extract tickers from query if not explicitly filtered
+            if not ticker_filter:
+                detected_tickers = extract_tickers_from_query(query)
+            else:
+                detected_tickers = [ticker_filter.strip().upper()]
+
+            # Use smart routing to decide how to handle the query
+            from financial_research_agent.rag.intelligence import (
+                decide_query_routing,
+                format_query_decision_prompt
+            )
+
+            decision = decide_query_routing(
+                detected_tickers=detected_tickers,
+                chroma_manager=rag,
+                require_fresh=False  # Allow aging data for queries
+            )
+
+            # If we should suggest analysis instead of querying, show the prompt
+            if decision.action == "suggest_analysis":
+                yield "📊 Checking knowledge base status..."
+                kb_companies = rag.get_companies_with_status()
+                prompt = format_query_decision_prompt(decision, query, kb_companies)
+                if prompt:
+                    yield prompt
+                    return
+
+            # If we have mixed quality data, show a warning but allow proceeding
+            if decision.action == "mixed_quality":
+                yield "⚠️ Checking data quality..."
+                kb_companies = rag.get_companies_with_status()
+                prompt = format_query_decision_prompt(decision, query, kb_companies)
+                if prompt:
+                    yield prompt
+                    return
+
+            # Show searching progress
+            yield "🔍 Searching knowledge base..."
 
             # Prepare filters
             ticker = ticker_filter.strip().upper() if ticker_filter else None
             analysis_type_val = analysis_type if analysis_type else None
 
             # Query with synthesis - this returns a structured RAGResponse
+            yield "🤖 Synthesizing answer from sources..."
             response = rag.query_with_synthesis(
                 query=query,
                 ticker=ticker,
@@ -203,6 +308,11 @@ class WebApp:
             emoji = confidence_emoji.get(response.confidence.lower(), "⚪")
             output += f"**Confidence:** {emoji} {response.confidence.upper()}\n\n"
 
+            # Data age warning (if present)
+            if response.data_age_warning:
+                output += f"### ⏰ Data Age Notice\n\n{response.data_age_warning}\n\n"
+                output += "*Consider running a fresh analysis if you need the most current data.*\n\n"
+
             # Sources cited
             if response.sources_cited:
                 output += "### 📚 Sources\n\n"
@@ -223,14 +333,14 @@ class WebApp:
 
             output += "---\n\n*💡 Tip: Click a suggested question to explore further*"
 
-            return output
+            yield output
 
         except FileNotFoundError:
-            return "### 📂 ChromaDB Not Found\n\nThe knowledge base has not been initialized yet.\n\nTo populate it:\n1. Run analyses using the \"Run New Analysis\" mode\n2. Or run: `python scripts/upload_local_to_chroma.py --ticker AAPL --analysis-dir <path>`\n\n See `chroma_db/` directory."
+            yield "### 📂 ChromaDB Not Found\n\nThe knowledge base has not been initialized yet.\n\nTo populate it:\n1. Run analyses using the \"Run New Analysis\" mode\n2. Or run: `python scripts/upload_local_to_chroma.py --ticker AAPL --analysis-dir <path>`\n\n See `chroma_db/` directory."
         except Exception as e:
             import traceback
             error_detail = traceback.format_exc()
-            return f"### ❌ Error\n\nFailed to query knowledge base:\n\n```\n{str(e)}\n```\n\n<details>\n<summary>Full Error Details</summary>\n\n```\n{error_detail}\n```\n</details>"
+            yield f"### ❌ Error\n\nFailed to query knowledge base:\n\n```\n{str(e)}\n```\n\n<details>\n<summary>Full Error Details</summary>\n\n```\n{error_detail}\n```\n</details>"
 
     async def generate_analysis(
         self,
@@ -247,7 +357,7 @@ class WebApp:
         if not query or query.strip() == "":
             yield (
                 "❌ Please enter a query or select a template",
-                "", "", "", ""
+                "", "", "", "", "", "", None, None, None
             )
             return
 
@@ -257,6 +367,8 @@ class WebApp:
                 'comprehensive': '*⏳ Waiting for comprehensive report...*',
                 'statements': '*⏳ Waiting for financial statements...*',
                 'metrics': '*⏳ Waiting for financial metrics...*',
+                'financial_analysis': '*⏳ Waiting for financial analysis...*',
+                'risk_analysis': '*⏳ Waiting for risk analysis...*',
                 'verification': '*⏳ Waiting for verification...*'
             }
 
@@ -277,9 +389,16 @@ class WebApp:
 
             # Poll for completed reports while analysis runs
             last_check = 0
+            poll_count = 0
             while not analysis_task.done():
                 # Check every 2 seconds for new reports
                 await asyncio.sleep(2)
+                poll_count += 1
+
+                # Keep progress bar alive even if no updates
+                # This prevents the timer from appearing frozen
+                if poll_count % 5 == 0:  # Every 10 seconds
+                    progress(None, desc="Analysis in progress...")
 
                 if self.manager.session_dir and self.manager.session_dir.exists():
                     self.current_session_dir = self.manager.session_dir
@@ -297,15 +416,28 @@ class WebApp:
 
                     # Yield update if we found new reports
                     if has_updates:
-                        timestamp = self.current_session_dir.name if self.current_session_dir else "unknown"
-                        status_msg = f"🔄 Analysis in progress...\n\n**Session:** {timestamp}\n**Query:** {query}\n\n**Completed:** {', '.join(sorted(loaded_reports))}"
+                        from financial_research_agent.rag.utils import format_analysis_age
+                        age_info = format_analysis_age(self.current_session_dir.name)
+                        status_msg = f"""🔄 Analysis in progress...
+
+**Analysis Started:** {age_info['formatted']}
+**Session ID:** {self.current_session_dir.name}
+**Query:** {query}
+
+**Completed Reports:** {', '.join(sorted(loaded_reports))}
+"""
 
                         yield (
                             status_msg,
                             reports.get('comprehensive', ''),
                             reports.get('statements', ''),
                             reports.get('metrics', ''),
-                            reports.get('verification', '')
+                            reports.get('financial_analysis', ''),
+                            reports.get('risk_analysis', ''),
+                            reports.get('verification', ''),
+                            None,  # Charts not available yet
+                            None,
+                            None
                         )
 
             # Wait for analysis to complete
@@ -314,27 +446,95 @@ class WebApp:
             # Get the session directory that was created
             self.current_session_dir = self.manager.session_dir
 
-            progress(0.98, desc="Loading final reports...")
+            progress(0.95, desc="Loading final reports...")
 
             # Load all final reports
             reports = self._load_reports()
 
+            # Auto-index to ChromaDB for instant Q&A
+            progress(0.96, desc="Indexing to knowledge base...")
+            try:
+                from financial_research_agent.rag.chroma_manager import FinancialRAGManager
+                from financial_research_agent.rag.utils import extract_tickers_from_query
+
+                # Extract ticker from query
+                detected_tickers = extract_tickers_from_query(query)
+                ticker = detected_tickers[0] if detected_tickers else "UNKNOWN"
+
+                # Index the analysis
+                rag = FinancialRAGManager(persist_directory="./chroma_db")
+                rag.index_analysis_from_directory(self.current_session_dir, ticker=ticker)
+            except Exception as index_error:
+                # Don't fail the whole analysis if indexing fails
+                print(f"Warning: Failed to auto-index analysis: {index_error}")
+
+            # Auto-generate charts
+            progress(0.98, desc="Generating interactive charts...")
+            margin_chart_fig = None
+            metrics_chart_fig = None
+            risk_chart_fig = None
+
+            try:
+                from scripts.generate_charts_from_analysis import generate_charts_for_analysis
+
+                # Generate charts automatically
+                charts_count = generate_charts_for_analysis(self.current_session_dir, ticker=ticker)
+
+                if charts_count and charts_count > 0:
+                    # Load the generated charts
+                    import json
+                    import plotly.graph_objects as go
+
+                    margin_chart_path = self.current_session_dir / "chart_margins.json"
+                    if margin_chart_path.exists():
+                        with open(margin_chart_path, 'r') as f:
+                            margin_chart_data = json.load(f)
+                        margin_chart_fig = go.Figure(margin_chart_data)
+
+                    metrics_chart_path = self.current_session_dir / "chart_metrics.json"
+                    if metrics_chart_path.exists():
+                        with open(metrics_chart_path, 'r') as f:
+                            metrics_chart_data = json.load(f)
+                        metrics_chart_fig = go.Figure(metrics_chart_data)
+
+                    risk_chart_path = self.current_session_dir / "chart_risk_categories.json"
+                    if risk_chart_path.exists():
+                        with open(risk_chart_path, 'r') as f:
+                            risk_chart_data = json.load(f)
+                        risk_chart_fig = go.Figure(risk_chart_data)
+            except Exception as chart_error:
+                # Don't fail the whole analysis if chart generation fails
+                print(f"Warning: Failed to auto-generate charts: {chart_error}")
+
             progress(1.0, desc="Complete!")
 
-            timestamp = self.current_session_dir.name if self.current_session_dir else "unknown"
-            status_msg = f"✅ Analysis completed successfully!\n\n**Session:** {timestamp}\n**Query:** {query}"
+            from financial_research_agent.rag.utils import format_analysis_age
+            age_info = format_analysis_age(self.current_session_dir.name)
+            status_msg = f"""✅ Analysis completed successfully!
+
+**Analysis Date:** {age_info['formatted']} {age_info['status_emoji']}
+**Session ID:** {self.current_session_dir.name}
+**Query:** {query}
+
+📊 All reports are now available in the tabs below. The analysis has been automatically indexed to the knowledge base for instant Q&A!
+"""
 
             yield (
                 status_msg,
                 reports.get('comprehensive', ''),
                 reports.get('statements', ''),
                 reports.get('metrics', ''),
-                reports.get('verification', '')
+                reports.get('financial_analysis', ''),
+                reports.get('risk_analysis', ''),
+                reports.get('verification', ''),
+                margin_chart_fig,
+                metrics_chart_fig,
+                risk_chart_fig
             )
 
         except Exception as e:
             error_msg = f"❌ Error during analysis:\n\n{str(e)}"
-            yield (error_msg, "", "", "", "")
+            yield (error_msg, "", "", "", "", "", "", None, None, None)
 
     def _load_reports(self) -> dict[str, str]:
         """Load generated markdown reports from session directory."""
@@ -348,6 +548,8 @@ class WebApp:
             'comprehensive': '07_comprehensive_report.md',
             'statements': '03_financial_statements.md',
             'metrics': '04_financial_metrics.md',
+            'financial_analysis': '05_financial_analysis.md',
+            'risk_analysis': '06_risk_analysis.md',
             'verification': '08_verification.md',
         }
 
@@ -363,6 +565,104 @@ class WebApp:
     def use_template(self, template_name: str) -> str:
         """Return the query for a selected template."""
         return QUERY_TEMPLATES.get(template_name, "")
+
+    def _format_missing_companies_prompt(self, missing_tickers: list[str], query: str) -> str:
+        """
+        Format a helpful prompt when companies are not in knowledge base.
+
+        Args:
+            missing_tickers: List of tickers not in KB
+            query: Original user query
+
+        Returns:
+            Formatted markdown guidance
+        """
+        if len(missing_tickers) == 1:
+            ticker = missing_tickers[0]
+            return f"""## ⚠️ Company Not in Knowledge Base
+
+**{ticker}** has not been analyzed yet and is not in the knowledge base.
+
+### To answer questions about {ticker}:
+
+1. **Run a comprehensive analysis first** (Recommended)
+   - Switch to the **"Run New Analysis"** mode
+   - Enter query: `Analyze {ticker}'s most recent quarterly performance`
+   - Time: ~3-5 minutes
+   - Cost: ~$0.08
+   - Includes: Complete SEC filings, 118+ line items, risk analysis
+
+2. **Try a different company**
+   - Query companies already in the knowledge base (see below)
+
+---
+
+### 📊 Companies Currently in Knowledge Base:
+
+{self._format_kb_companies_list()}
+
+---
+
+*Once {ticker} is analyzed, you can ask unlimited questions about it instantly!*
+"""
+        else:
+            ticker_list = ", ".join(missing_tickers)
+            return f"""## ⚠️ Multiple Companies Not in Knowledge Base
+
+The following companies are not yet in the knowledge base:
+**{ticker_list}**
+
+### To compare these companies:
+
+1. **Analyze each company** (Recommended for accurate comparisons)
+   - Switch to **"Run New Analysis"** mode
+   - Analyze each ticker separately (or in sequence)
+   - Total time: ~{len(missing_tickers) * 3}-{len(missing_tickers) * 5} minutes
+   - Total cost: ~${len(missing_tickers) * 0.08:.2f}
+
+2. **Partial comparison** (if some companies are in KB)
+   - Refine your query to only include companies already analyzed
+
+---
+
+### 📊 Companies Currently in Knowledge Base:
+
+{self._format_kb_companies_list()}
+
+---
+
+*Tip: Build up your knowledge base over time by analyzing companies as needed!*
+"""
+
+    def _format_kb_companies_list(self) -> str:
+        """
+        Get formatted list of companies in knowledge base.
+
+        Returns:
+            Markdown formatted list
+        """
+        from financial_research_agent.rag.chroma_manager import FinancialRAGManager
+        from financial_research_agent.rag.utils import format_company_status
+
+        try:
+            rag = FinancialRAGManager(persist_directory="./chroma_db")
+            companies = rag.get_companies_with_status()
+
+            if not companies:
+                return "*Knowledge base is empty. Run your first analysis!*"
+
+            # Format as bullet list
+            lines = []
+            for company in companies[:20]:  # Limit to top 20
+                lines.append(f"- {format_company_status(company)}")
+
+            if len(companies) > 20:
+                lines.append(f"\n*...and {len(companies) - 20} more companies*")
+
+            return "\n".join(lines)
+
+        except Exception:
+            return "*Unable to load knowledge base status*"
 
     def create_interface(self):
         """Create the Gradio interface."""
@@ -434,6 +734,23 @@ class WebApp:
                 • Data quality verification and validation
                 """
             )
+
+            # Knowledge Base Status Banner
+            kb_status_banner = gr.Markdown(elem_classes=["status-box"])
+
+            # Initialize KB status on load
+            def load_kb_status():
+                from financial_research_agent.rag.intelligence import get_kb_summary_banner
+                from financial_research_agent.rag.chroma_manager import FinancialRAGManager
+
+                try:
+                    rag = FinancialRAGManager(persist_directory="./chroma_db")
+                    return get_kb_summary_banner(rag)
+                except Exception as e:
+                    return f"### 💾 Knowledge Base Status\n\n*Unable to load: {str(e)}*"
+
+            # Load KB status when app starts
+            app.load(fn=load_kb_status, outputs=[kb_status_banner])
 
             with gr.Tabs() as tabs:
 
@@ -626,8 +943,73 @@ class WebApp:
                             visible=False
                         )
 
-                # ==================== TAB 5: Data Verification ====================
-                with gr.Tab("✅ Data Verification", id=4):
+                # ==================== TAB 5: Financial Analysis ====================
+                with gr.Tab("💡 Financial Analysis", id=4):
+                    gr.Markdown(
+                        """
+                        ## Specialist Financial Analysis (800-1200 words)
+                        *In-depth analysis of financial performance, trends, and key metrics
+                        by the Financial Analyst agent with direct access to SEC EDGAR data*
+                        """
+                    )
+
+                    financial_analysis_output = gr.Markdown(
+                        elem_classes=["report-content"]
+                    )
+
+                    # Interactive Charts Section
+                    gr.Markdown("### 📊 Interactive Charts")
+
+                    with gr.Row():
+                        margin_chart = gr.Plot(
+                            label="Profitability Margins",
+                            visible=True
+                        )
+                        metrics_chart = gr.Plot(
+                            label="Key Financial Metrics",
+                            visible=True
+                        )
+
+                    with gr.Row():
+                        segment_chart = gr.Plot(
+                            label="Revenue by Segment",
+                            visible=True
+                        )
+
+                    with gr.Row():
+                        download_fin_analysis_md = gr.DownloadButton(
+                            label="📥 Download Financial Analysis",
+                            visible=False
+                        )
+
+                # ==================== TAB 6: Risk Analysis ====================
+                with gr.Tab("⚠️ Risk Analysis", id=5):
+                    gr.Markdown(
+                        """
+                        ## Specialist Risk Assessment (800-1200 words)
+                        *Comprehensive risk analysis prioritizing 10-K Item 1A Risk Factors
+                        by the Risk Analyst agent with access to annual and quarterly SEC filings*
+                        """
+                    )
+
+                    risk_analysis_output = gr.Markdown(
+                        elem_classes=["report-content"]
+                    )
+
+                    with gr.Row():
+                        risk_chart = gr.Plot(
+                            label="Risk Category Breakdown (Keyword-based Analysis)",
+                            visible=True
+                        )
+
+                    with gr.Row():
+                        download_risk_analysis_md = gr.DownloadButton(
+                            label="📥 Download Risk Analysis",
+                            visible=False
+                        )
+
+                # ==================== TAB 7: Data Verification ====================
+                with gr.Tab("✅ Data Verification", id=6):
                     gr.Markdown(
                         """
                         ## Data Quality & Validation Report
@@ -677,7 +1059,12 @@ class WebApp:
                     comprehensive_output,
                     statements_output,
                     metrics_output,
-                    verification_output
+                    financial_analysis_output,
+                    risk_analysis_output,
+                    verification_output,
+                    margin_chart,
+                    metrics_chart,
+                    risk_chart
                 ]
             )
 
@@ -704,7 +1091,12 @@ class WebApp:
                     comprehensive_output,
                     statements_output,
                     metrics_output,
-                    verification_output
+                    financial_analysis_output,
+                    risk_analysis_output,
+                    verification_output,
+                    margin_chart,
+                    metrics_chart,
+                    risk_chart
                 ]
             )
 
