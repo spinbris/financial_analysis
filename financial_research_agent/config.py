@@ -12,22 +12,69 @@ try:
 except ImportError:
     pass  # python-dotenv not installed, will use environment variables only
 
+# Configure OpenAI client for Groq if using Groq provider
+_provider = os.getenv("LLM_PROVIDER", "groq")
+if _provider == "groq":
+    # Set Groq base URL for OpenAI-compatible API
+    os.environ["OPENAI_BASE_URL"] = "https://api.groq.com/openai/v1"
+
+    # Use Groq API key as OpenAI key (OpenAI client will use it)
+    if "GROQ_API_KEY" in os.environ and "OPENAI_API_KEY" not in os.environ:
+        os.environ["OPENAI_API_KEY"] = os.environ["GROQ_API_KEY"]
+
 
 class AgentConfig:
     """Configuration for agent models and settings."""
 
-    # Model configurations (performance-optimized defaults)
-    # Use gpt-4o-mini for simple tasks (planning, search) - proven fast & cheap
-    # Use gpt-4o for critical analysis tasks - proven quality & speed
-    # NOTE: gpt-5 models with reasoning_effort="minimal" can also be fast!
-    PLANNER_MODEL = os.getenv("PLANNER_MODEL", "gpt-4o-mini")
-    SEARCH_MODEL = os.getenv("SEARCH_MODEL", "gpt-4o-mini")
-    WRITER_MODEL = os.getenv("WRITER_MODEL", "gpt-4o")
-    VERIFIER_MODEL = os.getenv("VERIFIER_MODEL", "gpt-4o")
-    EDGAR_MODEL = os.getenv("EDGAR_MODEL", "gpt-4o")
-    FINANCIALS_MODEL = os.getenv("FINANCIALS_MODEL", "gpt-4o")
-    RISK_MODEL = os.getenv("RISK_MODEL", "gpt-4o")
-    METRICS_MODEL = os.getenv("METRICS_MODEL", "gpt-4o")
+    # LLM Provider Selection
+    # Options: "groq" (default, 10-100x faster + 90% cheaper) or "openai" (GPT-5, highest quality)
+    #
+    # Groq (Recommended Default - Test Quality):
+    #   - mixtral-8x7b: $0.024/1M (fastest)
+    #   - llama-3.3-70b: $0.05/$0.08 per 1M (best quality)
+    #   - Cost: ~$0.15/report (90% cheaper than GPT-5)
+    #   - Speed: 10-100x faster (300+ tokens/sec vs ~40)
+    #   - Quality: TBD - needs testing vs GPT-5
+    #
+    # OpenAI GPT-5 (Fallback for Maximum Quality):
+    #   - gpt-5-nano: $0.05/$0.40 per 1M tokens (cheapest, simple tasks)
+    #   - gpt-5:      $1.25/$10.00 per 1M tokens (critical analysis, ~$1.50/report)
+    #   - o3-mini:    $1.10/$4.40 per 1M tokens (reasoning-optimized for planning)
+    #   - 272K context window, 90% cache discount
+    #   - Best for: Complex reasoning, deep financial analysis
+    DEFAULT_PROVIDER = os.getenv("LLM_PROVIDER", "openai")
+
+    # Model configurations - automatically set based on LLM_PROVIDER
+    # Groq: Fast & cheap (~$0.15/report, 10-100x faster)
+    # OpenAI: High quality (~$1.50/report, GPT-5 reasoning models)
+
+    if DEFAULT_PROVIDER == "groq":
+        # Groq models (updated Nov 2025)
+        # Note: Agent SDK uses structured outputs (json_schema), which requires specific models
+        # As of Nov 2025, standard Llama models do NOT support structured outputs
+        # Only OpenAI GPT-OSS models on Groq support json_schema:
+        #   - openai/gpt-oss-20b (smaller, faster)
+        #   - openai/gpt-oss-120b (larger, higher quality)
+        # Using gpt-oss-120b for ALL tasks to ensure compatibility with Agent SDK
+        PLANNER_MODEL = os.getenv("PLANNER_MODEL", "openai/gpt-oss-120b")
+        SEARCH_MODEL = os.getenv("SEARCH_MODEL", "openai/gpt-oss-120b")
+        WRITER_MODEL = os.getenv("WRITER_MODEL", "openai/gpt-oss-120b")
+        VERIFIER_MODEL = os.getenv("VERIFIER_MODEL", "openai/gpt-oss-120b")
+        EDGAR_MODEL = os.getenv("EDGAR_MODEL", "openai/gpt-oss-120b")
+        FINANCIALS_MODEL = os.getenv("FINANCIALS_MODEL", "openai/gpt-oss-120b")
+        RISK_MODEL = os.getenv("RISK_MODEL", "openai/gpt-oss-120b")
+        METRICS_MODEL = os.getenv("METRICS_MODEL", "openai/gpt-oss-120b")
+    else:
+        # OpenAI GPT-5 models - use env vars from .env file if provided
+        # Note: Avoiding o3-mini due to verbosity parameter issues
+        PLANNER_MODEL = os.getenv("PLANNER_MODEL", "gpt-5-nano")
+        SEARCH_MODEL = os.getenv("SEARCH_MODEL", "gpt-5-nano")
+        WRITER_MODEL = os.getenv("WRITER_MODEL", "gpt-5")
+        VERIFIER_MODEL = os.getenv("VERIFIER_MODEL", "gpt-5-nano")
+        EDGAR_MODEL = os.getenv("EDGAR_MODEL", "gpt-5-nano")
+        FINANCIALS_MODEL = os.getenv("FINANCIALS_MODEL", "gpt-5")
+        RISK_MODEL = os.getenv("RISK_MODEL", "gpt-5")
+        METRICS_MODEL = os.getenv("METRICS_MODEL", "gpt-5")
 
     # Reasoning effort per model (minimal, low, medium, high)
     # Only applies when using gpt-5, gpt-5-mini, or gpt-5-nano models
@@ -86,7 +133,7 @@ class AgentConfig:
             from openai.types.shared import Reasoning
 
             # o3 models only support verbosity="medium"
-            # gpt-5 models support verbosity="low"
+            # gpt-5 models support verbosity="low", "medium", or "high"
             verbosity = "medium" if model.startswith("o") else "low"
 
             return ModelSettings(

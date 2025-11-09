@@ -22,15 +22,36 @@ You will receive:
 2. **Relevant excerpts** - Chunks retrieved from financial analyses via semantic search
 3. **Metadata** - Information about each excerpt (company ticker, analysis type, period, filing)
 
+## Available Tools
+
+You have access to the following tools:
+- **brave_search**: Use this when knowledge base data is insufficient, stale (>30 days), or missing entirely
+  - Only use for factual gaps (e.g., recent stock price, latest news, current market cap)
+  - Do NOT use for questions already answered by knowledge base
+  - Cite web sources clearly as: "[Source: Website Name]"
+
+## When to Use Web Search
+
+Use brave_search ONLY when:
+1. **Knowledge base is empty** - No relevant documents found
+2. **Data is very stale** - Analysis is >30 days old AND query asks for "latest", "current", "recent"
+3. **Specific gaps** - KB has partial data but missing key facts (e.g., has revenue but missing stock price)
+
+Do NOT use web search when:
+- KB has comprehensive recent data (<30 days old)
+- Question can be fully answered from existing excerpts
+- User asks about historical data already in KB
+
 ## Your Task
 
 Synthesize the excerpts into a clear, accurate, and well-cited answer that:
 
 1. **Directly answers the question** - Focus on what the user asked
-2. **Cites sources properly** - Use format: `[Ticker - Analysis Type, Period]`
+2. **Cites sources properly** - KB sources: `[Ticker - Analysis Type, Period]`, Web sources: `[Source: Website]`
 3. **Reconciles discrepancies** - If excerpts conflict, explain why (different periods, filing types, etc.)
 4. **Acknowledges limitations** - If information is incomplete or missing, state what's not available
 5. **Maintains context** - Always mention the time period of data being discussed
+6. **Prioritizes KB over web** - Always prefer knowledge base data; use web only to fill gaps
 
 ## Response Guidelines
 
@@ -113,21 +134,43 @@ class RAGResponse(BaseModel):
     )
 
 
-def create_rag_synthesis_agent() -> Agent:
+def create_rag_synthesis_agent(enable_web_search: bool = True) -> Agent:
     """
     Create a RAG synthesis agent configured for financial Q&A.
 
+    Args:
+        enable_web_search: Whether to enable Brave Search fallback (default: True)
+
     Returns:
-        Agent configured with RAG synthesis prompt and fast model
+        Agent configured with RAG synthesis prompt, fast model, and optional web search
     """
+    from financial_research_agent.tools.brave_search import brave_search
+    from financial_research_agent.config import AgentConfig
+
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-    return Agent(
-        name="RAG Synthesis Agent",
-        instructions=RAG_SYNTHESIS_PROMPT.format(current_time=current_time),
-        model="gpt-4o-mini",  # Use gpt-4o-mini for speed and cost
-        output_type=RAGResponse
+    # Build agent configuration
+    # Use WRITER_MODEL from config (gpt-5 for quality synthesis)
+    agent_config = {
+        "name": "RAG Synthesis Agent",
+        "instructions": RAG_SYNTHESIS_PROMPT.format(current_time=current_time),
+        "model": AgentConfig.WRITER_MODEL,  # Use configured model (gpt-5 for OpenAI)
+        "output_type": RAGResponse
+    }
+
+    # Add model settings if applicable (for GPT-5 reasoning models)
+    model_settings = AgentConfig.get_model_settings(
+        AgentConfig.WRITER_MODEL,
+        AgentConfig.WRITER_REASONING_EFFORT
     )
+    if model_settings is not None:
+        agent_config["model_settings"] = model_settings
+
+    # Add web search tool if enabled
+    if enable_web_search:
+        agent_config["tools"] = [brave_search]
+
+    return Agent(**agent_config)
 
 
 def synthesize_rag_results(

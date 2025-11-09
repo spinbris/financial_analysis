@@ -59,6 +59,18 @@ class WebApp:
         self.current_session_dir = None
         self.current_reports = {}
         self.analysis_map = {}  # Map labels to directory paths
+        self.session_id = None  # For API key management
+        from financial_research_agent.config import AgentConfig
+        self.llm_provider = AgentConfig.DEFAULT_PROVIDER  # Use config default
+
+        # Set SEC EDGAR user agent for edgartools (required for company lookups)
+        import os
+        from edgar import set_identity
+        user_agent = os.getenv(
+            "SEC_EDGAR_USER_AGENT",
+            "FinancialResearchAgent/1.0 (stephen.parton@sjpconsulting.com)"
+        )
+        set_identity(user_agent)
 
     def get_existing_analyses(self):
         """Get list of existing analysis directories."""
@@ -379,8 +391,63 @@ class WebApp:
             def progress_callback(prog: float, desc: str):
                 progress(prog, desc=desc)
 
+            # Configure LLM provider before initializing manager
+            progress(0.0, desc="Configuring LLM provider...")
+            import os
+            from financial_research_agent.llm_provider import get_session_manager
+
+            # Get API keys from session if available
+            manager = get_session_manager()
+            groq_key = None
+            openai_key = None
+
+            if self.session_id:
+                groq_key = manager.get_api_key(self.session_id, "groq")
+                openai_key = manager.get_api_key(self.session_id, "openai")
+
+            # Configure environment based on provider
+            if self.llm_provider == "groq":
+                # Use Groq with OpenAI-compatible endpoint
+                if groq_key:
+                    os.environ["OPENAI_API_KEY"] = groq_key
+                elif "GROQ_API_KEY" in os.environ:
+                    os.environ["OPENAI_API_KEY"] = os.environ["GROQ_API_KEY"]
+
+                # Set Groq base URL for OpenAI client
+                os.environ["OPENAI_BASE_URL"] = "https://api.groq.com/openai/v1"
+
+                # Override model selections to use Groq models
+                from financial_research_agent.llm_provider import get_groq_model
+                os.environ["PLANNER_MODEL"] = get_groq_model("planner")
+                os.environ["SEARCH_MODEL"] = get_groq_model("search")
+                os.environ["WRITER_MODEL"] = get_groq_model("writer")
+                os.environ["VERIFIER_MODEL"] = get_groq_model("verifier")
+                os.environ["EDGAR_MODEL"] = get_groq_model("edgar")
+                os.environ["FINANCIALS_MODEL"] = get_groq_model("financials")
+                os.environ["RISK_MODEL"] = get_groq_model("risk")
+                os.environ["METRICS_MODEL"] = get_groq_model("metrics")
+
+                # Disable reasoning effort for Groq (doesn't support ModelSettings)
+                # Set to empty string so get_model_settings() returns None
+                os.environ["PLANNER_REASONING_EFFORT"] = ""
+                os.environ["SEARCH_REASONING_EFFORT"] = ""
+                os.environ["WRITER_REASONING_EFFORT"] = ""
+                os.environ["VERIFIER_REASONING_EFFORT"] = ""
+                os.environ["EDGAR_REASONING_EFFORT"] = ""
+                os.environ["FINANCIALS_REASONING_EFFORT"] = ""
+                os.environ["RISK_REASONING_EFFORT"] = ""
+                os.environ["METRICS_REASONING_EFFORT"] = ""
+            else:
+                # Use OpenAI
+                if openai_key:
+                    os.environ["OPENAI_API_KEY"] = openai_key
+
+                # Clear Groq base URL if previously set
+                if "OPENAI_BASE_URL" in os.environ:
+                    del os.environ["OPENAI_BASE_URL"]
+
             # Initialize manager with progress callback
-            progress(0.0, desc="Initializing analysis engine...")
+            progress(0.05, desc="Initializing analysis engine...")
             self.manager = EnhancedFinancialResearchManager(progress_callback=progress_callback)
 
             # Start the analysis in background
@@ -664,6 +731,52 @@ The following companies are not yet in the knowledge base:
         except Exception:
             return "*Unable to load knowledge base status*"
 
+    def save_session_keys(self, provider: str, groq_key: str, openai_key: str) -> str:
+        """Save API keys for the current session."""
+        from financial_research_agent.llm_provider import get_session_manager
+
+        # Create session if needed
+        if not self.session_id:
+            manager = get_session_manager()
+            self.session_id = manager.create_session()
+
+        manager = get_session_manager()
+
+        # Store provided keys
+        if groq_key:
+            manager.set_api_key(self.session_id, "groq", groq_key)
+
+        if openai_key:
+            manager.set_api_key(self.session_id, "openai", openai_key)
+
+        # Update provider preference
+        self.llm_provider = provider
+
+        # Build status message
+        status_parts = []
+        if groq_key:
+            status_parts.append("✅ Groq key saved")
+        if openai_key:
+            status_parts.append("✅ OpenAI key saved")
+
+        if status_parts:
+            status = " | ".join(status_parts)
+            return f"**{status}** (Active provider: {provider.upper()})\n\n*Keys stored in-memory only. Remember to delete from provider after use!*"
+        else:
+            return f"*Using environment/default keys (Active provider: {provider.upper()})*"
+
+    def clear_session_keys(self) -> str:
+        """Clear all session keys."""
+        from financial_research_agent.llm_provider import get_session_manager
+
+        if self.session_id:
+            manager = get_session_manager()
+            manager.clear_session(self.session_id)
+            self.session_id = None
+            return "✅ **Session keys cleared**\n\n*Remember to delete keys from your provider (Groq/OpenAI)!*"
+        else:
+            return "*No session keys to clear*"
+
     def create_interface(self):
         """Create the Gradio interface."""
 
@@ -725,147 +838,374 @@ The following companies are not yet in the knowledge base:
                 """
                 # 📊 Financial Research Agent
                 ### *Investment-Grade Financial Analysis powered by SEC EDGAR*
-
-                Generate comprehensive 3-5 page research reports with:
-                • Complete financial statement extraction from official SEC filings
-                • Comparative period analysis with human-readable formatting
-                • Financial metrics & ratios with YoY trends
-                • Risk assessment and forward-looking indicators
-                • Data quality verification and validation
                 """
             )
 
-            # Knowledge Base Status Banner
-            kb_status_banner = gr.Markdown(elem_classes=["status-box"])
+            # Company-Centric Dashboard Section
+            gr.Markdown("## 🏢 Company Dashboard")
 
-            # Initialize KB status on load
-            def load_kb_status():
-                from financial_research_agent.rag.intelligence import get_kb_summary_banner
+            with gr.Row():
+                with gr.Column(scale=2):
+                    company_selector = gr.Dropdown(
+                        label="Select Company or Enter Ticker/Name",
+                        choices=[],
+                        allow_custom_value=True,
+                        interactive=True
+                    )
+                with gr.Column(scale=1):
+                    add_new_ticker = gr.Textbox(
+                        label="Or Enter Company Name/Ticker",
+                        placeholder="e.g., Apple, AAPL, Microsoft",
+                        max_lines=1
+                    )
+                with gr.Column(scale=1):
+                    add_company_btn = gr.Button("+ Add Company", variant="primary")
+
+            # Company Status Card
+            company_status_card = gr.Markdown(elem_classes=["status-box"])
+
+            # Action Buttons Row
+            with gr.Row():
+                ask_question_btn = gr.Button("💭 Ask Questions", variant="primary", size="lg")
+                refresh_analysis_btn = gr.Button("🔄 Refresh Analysis", variant="secondary", size="lg")
+                view_reports_btn = gr.Button("📊 View Reports", variant="secondary", size="lg")
+
+            gr.Markdown("---")
+
+            # Functions for company dashboard
+            def load_company_list():
+                """Load list of companies from knowledge base."""
                 from financial_research_agent.rag.chroma_manager import FinancialRAGManager
 
                 try:
                     rag = FinancialRAGManager(persist_directory="./chroma_db")
-                    return get_kb_summary_banner(rag)
-                except Exception as e:
-                    return f"### 💾 Knowledge Base Status\n\n*Unable to load: {str(e)}*"
+                    companies = rag.get_companies_with_status()
 
-            # Load KB status when app starts
-            app.load(fn=load_kb_status, outputs=[kb_status_banner])
+                    if not companies:
+                        return gr.update(choices=[], value=None)
+
+                    # Format: "AAPL - Apple Inc. (updated 2 days ago)"
+                    choices = []
+                    for company in companies:
+                        status_emoji = {"fresh": "✅", "aging": "⚠️", "stale": "🔴", "missing": "❌"}
+                        emoji = status_emoji.get(company["status"], "❓")
+                        label = f"{emoji} {company['ticker']} - {company['company']} ({company['days_old']}d ago)"
+                        choices.append((label, company["ticker"]))
+
+                    return gr.update(choices=choices)
+                except Exception as e:
+                    return gr.update(choices=[], value=None)
+
+            def show_company_status(selected_input):
+                """Show status card for selected company (ticker or name)."""
+                if not selected_input:
+                    return """
+                    ### 👋 Welcome to Financial Research Agent
+
+                    **Get Started:**
+                    1. Select a company from the dropdown above (if available in your knowledge base)
+                    2. Or enter a company name or ticker symbol (e.g., "Apple", "AAPL", "Microsoft", "MSFT")
+
+                    **What You Can Do:**
+                    - 🔬 **Run Deep Analysis**: Generate comprehensive SEC filing analysis (~3-5 min)
+                    - 💬 **Ask Questions**: Query knowledge base for instant answers (~5 sec)
+                    - 📊 **View Reports**: Access detailed financial reports and charts
+
+                    **Examples:** Try "Apple", "Tesla", "AAPL", "TSLA", "Amazon", or any US public company!
+                    """
+
+                from financial_research_agent.rag.chroma_manager import FinancialRAGManager
+                from financial_research_agent.utils.sec_filing_checker import SECFilingChecker
+                from edgar import Company, find_company
+
+                # First, try to resolve company name to ticker if needed
+                selected_ticker = selected_input.strip()
+
+                try:
+                    # Try direct ticker lookup first
+                    try:
+                        company = Company(selected_ticker.upper())
+                        selected_ticker = company.tickers[0] if company.tickers else selected_ticker.upper()
+                    except:
+                        # If direct lookup fails, try company name search
+                        try:
+                            results = find_company(selected_ticker)
+                            if results:
+                                if isinstance(results, list) and len(results) > 0:
+                                    selected_ticker = results[0].tickers[0] if hasattr(results[0], 'tickers') and results[0].tickers else selected_ticker.upper()
+                                else:
+                                    selected_ticker = results.tickers[0] if hasattr(results, 'tickers') and results.tickers else selected_ticker.upper()
+                        except:
+                            # Use input as-is if lookup fails
+                            selected_ticker = selected_ticker.upper()
+                except:
+                    # Use input as-is if any error
+                    selected_ticker = selected_ticker.upper()
+
+                # Now show status for the resolved ticker
+                try:
+                    rag = FinancialRAGManager(persist_directory="./chroma_db")
+                    status = rag.check_company_status(selected_ticker)
+
+                    if not status["in_kb"]:
+                        return f"""
+                        ### ❌ {selected_ticker} Not in Knowledge Base
+
+                        **To analyze this company:**
+                        1. Click "🔄 Refresh Analysis" to run a comprehensive analysis (~3-5 min, ~$0.08)
+                        2. This will extract complete financials from SEC filings and index them for instant Q&A
+
+                        **Or try web search fallback** (less reliable, no SEC data):
+                        - Type your question below and we'll attempt to answer using web sources
+                        """
+
+                    # Company is in KB - show detailed status
+                    metadata = status["metadata"]
+                    status_emoji = {"fresh": "✅", "aging": "⚠️", "stale": "🔴"}
+                    emoji = status_emoji.get(status["status"], "❓")
+
+                    output = f"""
+                    ### {emoji} {metadata['company']} ({metadata['ticker']})
+
+                    **Status:** {status["status"].upper()} | **Last Updated:** {metadata['last_updated']} ({metadata['days_old']} days ago)
+
+                    **Latest Data:**
+                    - **Period:** {metadata['period']}
+                    - **Filing:** {metadata['filing']}
+                    """
+
+                    # Check for newer filings
+                    try:
+                        checker = SECFilingChecker()
+                        comparison = checker.compare_to_indexed_date(
+                            selected_ticker,
+                            metadata['last_updated']
+                        )
+
+                        if comparison["newer_filing_available"]:
+                            output += f"""
+
+                            ### 🆕 Newer Filing Available!
+
+                            **Latest SEC Filing:** {comparison['latest_filing_type']} filed {comparison['latest_filing_date']} ({comparison['days_behind']} days newer)
+
+                            **Recommendation:** Click "🔄 Refresh Analysis" to get the latest data
+                            """
+                        else:
+                            output += f"""
+
+                            ✅ **Up to date** - No newer filings available
+                            """
+                    except Exception as e:
+                        output += f"\n\n*Could not check for newer filings: {str(e)}*"
+
+                    # Add quick actions
+                    output += f"""
+
+                    ---
+
+                    **Quick Actions:**
+                    - 💭 **Ask Questions**: Query this company's data instantly
+                    - 🔄 **Refresh Analysis**: Update with latest SEC filings
+                    - 📊 **View Reports**: See detailed analysis and charts
+                    """
+
+                    return output
+
+                except Exception as e:
+                    return f"### ❌ Error\n\nFailed to load company status:\n```\n{str(e)}\n```"
+
+            # Load companies on app start
+            app.load(fn=load_company_list, outputs=[company_selector])
+
+            # Update status card when company selected
+            company_selector.change(
+                fn=show_company_status,
+                inputs=[company_selector],
+                outputs=[company_status_card]
+            )
+
+            # Handle adding new company
+            def handle_add_company(company_input):
+                """Handle adding a new company to analyze using flexible lookup."""
+                if not company_input:
+                    return {
+                        company_status_card: "⚠️ Please enter a company name or ticker symbol",
+                        company_selector: gr.update(),
+                        add_new_ticker: gr.update()
+                    }
+
+                search_term = company_input.strip()
+
+                # Use edgartools to lookup company
+                # Note: SEC user agent is set in __init__ for all edgartools calls
+                try:
+                    from edgar import Company, find_company
+
+                    # Try direct ticker lookup first (fast)
+                    try:
+                        company = Company(search_term.upper())
+                        ticker = company.tickers[0] if company.tickers else search_term.upper()
+                        company_name = company.name if hasattr(company, 'name') else ticker
+
+                        # Success - show status for this ticker
+                        status_text = show_company_status(ticker)
+
+                        return {
+                            company_status_card: status_text,
+                            company_selector: gr.update(value=ticker),
+                            add_new_ticker: gr.update(value="")
+                        }
+                    except:
+                        # Direct lookup failed, try search
+                        pass
+
+                    # If direct lookup fails, try company name search
+                    results = find_company(search_term)
+
+                    if not results:
+                        return {
+                            company_status_card: f"""
+                            ### ❌ Company Not Found
+
+                            Could not find "{search_term}" in SEC EDGAR database.
+
+                            **Suggestions:**
+                            - Check spelling (e.g., "Apple", "Microsoft", "Tesla")
+                            - Try the stock ticker instead (e.g., "AAPL", "MSFT", "TSLA")
+                            - Make sure the company is publicly traded in the US
+
+                            **Examples that work:**
+                            - Company names: Apple, Microsoft, Tesla, Amazon
+                            - Ticker symbols: AAPL, MSFT, TSLA, AMZN
+                            """,
+                            company_selector: gr.update(),
+                            add_new_ticker: gr.update(value="")
+                        }
+
+                    # If we get multiple results, use the first match
+                    if isinstance(results, list) and len(results) > 0:
+                        # Use first result
+                        first_result = results[0]
+                        ticker = first_result.tickers[0] if hasattr(first_result, 'tickers') and first_result.tickers else search_term.upper()
+                        company_name = first_result.name if hasattr(first_result, 'name') else ticker
+                    else:
+                        # Single result
+                        ticker = results.tickers[0] if hasattr(results, 'tickers') and results.tickers else search_term.upper()
+                        company_name = results.name if hasattr(results, 'name') else ticker
+
+                    # Show status for the found company
+                    status_text = show_company_status(ticker)
+
+                    # Add note about the lookup if company name was used
+                    if search_term.upper() != ticker:
+                        status_text = f"""
+                        ### ✅ Found: {company_name}
+
+                        *Matched "{search_term}" → Ticker: **{ticker}***
+
+                        ---
+
+                        {status_text}
+                        """
+
+                    return {
+                        company_status_card: status_text,
+                        company_selector: gr.update(value=ticker),
+                        add_new_ticker: gr.update(value="")
+                    }
+
+                except Exception as e:
+                    import traceback
+                    error_detail = traceback.format_exc()
+                    return {
+                        company_status_card: f"""
+                        ### ❌ Error Looking Up Company
+
+                        Failed to find "{search_term}" in SEC EDGAR database.
+
+                        **Error:** {str(e)}
+
+                        **Suggestions:**
+                        - Try entering the stock ticker directly (e.g., AAPL, MSFT)
+                        - Check spelling of company name
+                        - Ensure company is publicly traded in the US
+
+                        <details>
+                        <summary>Technical Details</summary>
+
+                        ```
+                        {error_detail}
+                        ```
+                        </details>
+                        """,
+                        company_selector: gr.update(),
+                        add_new_ticker: gr.update(value="")
+                    }
+
+            add_company_btn.click(
+                fn=handle_add_company,
+                inputs=[add_new_ticker],
+                outputs=[company_status_card, company_selector, add_new_ticker]
+            )
 
             with gr.Tabs() as tabs:
 
-                # ==================== TAB 1: Query & Analysis Setup ====================
-                with gr.Tab("🔍 Query", id=0):
-                    gr.Markdown("## Run New Analysis or View Existing")
+                # ==================== TAB 1: Ask Questions ====================
+                with gr.Tab("💭 Ask Questions", id=0):
+                    gr.Markdown("## 💬 Ask Questions About Your Company")
+                    gr.Markdown("*Get instant, AI-powered answers from the knowledge base with full citations*")
 
-                    # Mode selection
-                    with gr.Row():
-                        mode = gr.Radio(
-                            choices=["Run New Analysis", "View Existing Analysis", "Query Knowledge Base"],
-                            value="Run New Analysis",
-                            label="Mode"
-                        )
-
-                    # New analysis section
-                    with gr.Group(visible=True) as new_analysis_section:
-                        gr.Markdown("### Enter Your Financial Research Query")
-                        query_input = gr.Textbox(
-                            label="Research Query",
-                            placeholder="E.g., 'Analyze Tesla's Q3 2025 financial performance'",
-                            lines=3,
-                            elem_classes=["query-box"]
-                        )
-
-                    # Existing analysis section
-                    with gr.Group(visible=False) as existing_analysis_section:
-                        gr.Markdown("### Select an Existing Analysis")
-                        existing_dropdown = gr.Dropdown(
-                            label="Previous Analyses",
-                            choices=[],
-                            interactive=True
-                        )
-                        load_btn = gr.Button("Load Selected Analysis", variant="primary")
-
-                    # Knowledge base query section
-                    with gr.Group(visible=False) as kb_query_section:
-                        gr.Markdown("### 🔍 AI-Powered Knowledge Base Q&A")
-                        gr.Markdown("*Ask questions about any indexed company and get synthesized, well-cited answers powered by RAG*")
-
-                        with gr.Row():
-                            with gr.Column(scale=3):
-                                kb_query_input = gr.Textbox(
-                                    label="Search Query",
-                                    placeholder="E.g., 'What are Apple's main revenue sources?' or 'Compare cloud strategies'",
-                                    lines=2
-                                )
-                            with gr.Column(scale=1):
-                                kb_num_results = gr.Slider(
-                                    minimum=1,
-                                    maximum=10,
-                                    value=5,
-                                    step=1,
-                                    label="Number of Results"
-                                )
-
-                        with gr.Row():
-                            kb_ticker_filter = gr.Textbox(
-                                label="Filter by Ticker (optional)",
-                                placeholder="e.g., AAPL",
-                                scale=1
-                            )
-                            kb_analysis_type = gr.Dropdown(
-                                label="Filter by Analysis Type (optional)",
-                                choices=["", "risk", "financial_metrics", "financial_statements", "comprehensive", "fundamental"],
-                                value="",
-                                scale=1
-                            )
-
-                        kb_search_btn = gr.Button("🔍 Search Knowledge Base", variant="primary", size="lg")
-
-                        kb_results_output = gr.Markdown(
-                            label="Search Results",
-                            value="*Enter a query and click Search to find relevant information*"
-                        )
-
-                    gr.Markdown("### 📋 Quick Query Templates")
-                    gr.Markdown("*Click a template to auto-fill your query*")
+                    query_input = gr.Textbox(
+                        label="Your Question",
+                        placeholder="E.g., 'What were Apple's Q3 revenues?' or 'What are the main risk factors?'",
+                        lines=3,
+                        elem_classes=["query-box"]
+                    )
 
                     with gr.Row():
-                        with gr.Column(scale=1):
-                            for i, template_name in enumerate(list(QUERY_TEMPLATES.keys())[:4]):
-                                btn = gr.Button(
-                                    template_name,
-                                    size="sm",
-                                    elem_classes=["template-button"]
-                                )
-                                btn.click(
-                                    fn=lambda name=template_name: QUERY_TEMPLATES[name],
-                                    outputs=query_input
-                                )
+                        ask_btn = gr.Button("🔍 Ask Question", variant="primary", size="lg", scale=3)
+                        clear_btn = gr.Button("Clear", variant="secondary", scale=1)
 
-                        with gr.Column(scale=1):
-                            for template_name in list(QUERY_TEMPLATES.keys())[4:]:
-                                btn = gr.Button(
-                                    template_name,
-                                    size="sm",
-                                    elem_classes=["template-button"]
-                                )
-                                btn.click(
-                                    fn=lambda name=template_name: QUERY_TEMPLATES[name],
-                                    outputs=query_input
-                                )
+                    kb_results_output = gr.Markdown(
+                        value="*Select a company above and enter your question*",
+                        elem_classes=["report-content"]
+                    )
 
-                    gr.Markdown("---")
+                    gr.Markdown("*Common questions: 'What were Q3 revenues?' • 'What are the main risks?' • 'How has profitability changed?'*")
+
+                # ==================== TAB 2: Run/Refresh Analysis ====================
+                with gr.Tab("🔄 Run Analysis", id=1):
+                    gr.Markdown("## 🔬 Generate Comprehensive SEC Filing Analysis")
+                    gr.Markdown("""
+                    **This will:**
+                    - Extract complete financials from latest SEC filings (10-K/10-Q)
+                    - Analyze 118+ line items with comparative periods
+                    - Calculate financial ratios and metrics
+                    - Assess risk factors
+                    - Generate comprehensive 3-5 page report
+                    - Index everything for instant Q&A
+
+                    **Time:** ~3-5 minutes | **Cost:** ~$0.08 per analysis
+                    """)
+
+                    analysis_query_input = gr.Textbox(
+                        label="Analysis Query (optional - will auto-detect from selected company)",
+                        placeholder="E.g., 'Analyze Apple's latest quarterly performance'",
+                        lines=2,
+                        elem_classes=["query-box"]
+                    )
 
                     generate_btn = gr.Button(
-                        "🔍 Generate Analysis",
+                        "🚀 Run Comprehensive Analysis",
                         variant="primary",
                         size="lg"
                     )
 
                     status_output = gr.Markdown(
-                        label="Status",
-                        elem_classes=["status-box"]
+                        label="Analysis Status",
+                        elem_classes=["status-box"],
+                        value="*Select a company and click 'Run Comprehensive Analysis' to begin*"
                     )
 
                 # ==================== TAB 2: Comprehensive Report ====================
@@ -1050,74 +1390,111 @@ The following companies are not yet in the knowledge base:
                 """
             )
 
-            # Connect the generate button to the analysis function
-            generate_btn.click(
-                fn=self.generate_analysis,
-                inputs=[query_input],
-                outputs=[
-                    status_output,
-                    comprehensive_output,
-                    statements_output,
-                    metrics_output,
-                    financial_analysis_output,
-                    risk_analysis_output,
-                    verification_output,
-                    margin_chart,
-                    metrics_chart,
-                    risk_chart
-                ]
-            )
+            # ==================== EVENT HANDLERS ====================
 
-            # Mode switcher - show/hide sections based on mode
-            def toggle_mode(selected_mode):
+            # Connect dashboard action buttons
+            def handle_ask_questions_click(selected_ticker):
+                """Switch to Ask Questions tab."""
+                if not selected_ticker:
+                    return {tabs: gr.update(selected=0)}
+                return {tabs: gr.update(selected=0)}
+
+            def handle_refresh_analysis_click(selected_ticker):
+                """Switch to Run Analysis tab and populate query."""
+                if not selected_ticker:
+                    return {
+                        tabs: gr.update(selected=1),
+                        analysis_query_input: ""
+                    }
+                # Auto-populate query with ticker
+                query = f"Analyze {selected_ticker}'s latest quarterly financial performance"
                 return {
-                    new_analysis_section: gr.update(visible=(selected_mode == "Run New Analysis")),
-                    existing_analysis_section: gr.update(visible=(selected_mode == "View Existing Analysis")),
-                    kb_query_section: gr.update(visible=(selected_mode == "Query Knowledge Base"))
+                    tabs: gr.update(selected=1),
+                    analysis_query_input: query
                 }
 
-            mode.change(
-                fn=toggle_mode,
-                inputs=[mode],
-                outputs=[new_analysis_section, existing_analysis_section, kb_query_section]
+            def handle_view_reports_click(selected_ticker):
+                """Switch to Comprehensive Report tab."""
+                return {tabs: gr.update(selected=2)}
+
+            ask_question_btn.click(
+                fn=handle_ask_questions_click,
+                inputs=[company_selector],
+                outputs=[tabs]
             )
 
-            # Load button for existing analyses
-            load_btn.click(
-                fn=self.load_existing_analysis,
-                inputs=[existing_dropdown],
-                outputs=[
-                    status_output,
-                    comprehensive_output,
-                    statements_output,
-                    metrics_output,
-                    financial_analysis_output,
-                    risk_analysis_output,
-                    verification_output,
-                    margin_chart,
-                    metrics_chart,
-                    risk_chart
-                ]
+            refresh_analysis_btn.click(
+                fn=handle_refresh_analysis_click,
+                inputs=[company_selector],
+                outputs=[tabs, analysis_query_input]
             )
 
-            # Knowledge base search button
-            kb_search_btn.click(
-                fn=self.query_knowledge_base,
-                inputs=[kb_query_input, kb_ticker_filter, kb_analysis_type, kb_num_results],
+            view_reports_btn.click(
+                fn=handle_view_reports_click,
+                inputs=[company_selector],
+                outputs=[tabs]
+            )
+
+            # Connect Ask Question button
+            def handle_ask_question(question, selected_ticker):
+                """Handle asking a question."""
+                if not question or not question.strip():
+                    return "⚠️ Please enter a question"
+
+                # Use selected ticker as filter
+                ticker_filter = selected_ticker if selected_ticker else ""
+
+                # Call the existing query_knowledge_base function
+                result = ""
+                for chunk in self.query_knowledge_base(question, ticker_filter, "", 5):
+                    result = chunk  # Get final result
+
+                return result
+
+            ask_btn.click(
+                fn=handle_ask_question,
+                inputs=[query_input, company_selector],
                 outputs=[kb_results_output]
             )
 
-            # Populate dropdown on app load
-            def load_dropdown_choices():
-                analyses = self.get_existing_analyses()
-                choices = [a['label'] for a in analyses]
-                # Store mapping for later retrieval
-                self.analysis_map = {a['label']: a['value'] for a in analyses}
-                return gr.update(choices=choices, value=choices[0] if choices else None)
+            clear_btn.click(
+                fn=lambda: ("", "*Select a company above and enter your question*"),
+                outputs=[query_input, kb_results_output]
+            )
 
-            app.load(
-                fn=load_dropdown_choices,
-                outputs=[existing_dropdown]
+            # Connect generate button to analysis function
+            async def handle_generate_analysis(query, selected_ticker):
+                """Handle running comprehensive analysis."""
+                # Auto-detect from selected company if query is empty
+                if not query or not query.strip():
+                    if selected_ticker:
+                        query = f"Analyze {selected_ticker}'s latest quarterly financial performance"
+                    else:
+                        yield (
+                            "⚠️ Please select a company or enter an analysis query",
+                            "", "", "", "", "", "", None, None, None
+                        )
+                        return
+
+                # Call the existing generate_analysis function
+                async for result in self.generate_analysis(query):
+                    yield result
+
+            generate_btn.click(
+                fn=handle_generate_analysis,
+                inputs=[analysis_query_input, company_selector],
+                outputs=[
+                    status_output,
+                    comprehensive_output,
+                    statements_output,
+                    metrics_output,
+                    financial_analysis_output,
+                    risk_analysis_output,
+                    verification_output,
+                    margin_chart,
+                    metrics_chart,
+                    risk_chart
+                ]
             )
 
         return app
