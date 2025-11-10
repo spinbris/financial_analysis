@@ -483,152 +483,119 @@ After finishing your session:
 
 ---
 
-### ✅ **5. Groq Integration (Excellent Choice!)**
+### ❌ **5. Groq Integration - NOT COMPATIBLE (On Hold)**
 
-**Your Link**: https://console.groq.com/docs/mcp
+**Status**: Attempted but not currently working with Agent SDK
 
-**Groq Advantages**:
-- ✅ **10-100x faster** than OpenAI (LPU vs GPU)
-- ✅ **Cheaper**: $0.10/1M tokens (vs OpenAI $1-3/1M)
-- ✅ **Great models**: Llama 3.3 70B, Mixtral 8x7B
-- ✅ **MCP support**: Can use Brave Search via MCP
+**What Happened**:
+- Standard Llama models don't support `json_schema` (required by Agent SDK)
+- GPT-OSS models (`openai/gpt-oss-120b`) DO support `json_schema`
+- BUT: Agent SDK strips the `"openai/"` prefix, causing 404 errors
+- **Result**: Reverted to OpenAI GPT-5 as default provider
 
-#### Groq vs OpenAI Comparison
+See [docs/GROQ_INTEGRATION_STATUS.md](docs/GROQ_INTEGRATION_STATUS.md) for full technical details.
 
-| Feature | OpenAI GPT-4 | Groq Llama 3.3 70B |
-|---------|--------------|-------------------|
-| Cost (1M input tokens) | $2.50 | $0.05 (50x cheaper!) |
-| Cost (1M output tokens) | $10.00 | $0.08 (125x cheaper!) |
-| Speed (tokens/sec) | ~40 | ~300 (7.5x faster!) |
-| Quality | Excellent | Very Good |
-| Context Window | 128k | 32k |
+#### Why Groq Was Attempted (Goals)
 
-**For Your Use Case**:
-- Financial analysis: Llama 3.3 70B is excellent
-- Speed matters: Groq's LPU is perfect for real-time UI
-- Cost: ~$0.50 per full analysis vs ~$5 on OpenAI
+**Original Goals**:
+- 10-100x faster than OpenAI (LPU vs GPU)
+- 90% cost reduction ($0.05-0.08/1M vs $1-3/1M)
+- Use Llama 3.3 70B or Mixtral models
 
-#### Implementation
+**What We Learned**:
+- ✅ Groq API works fine with standard OpenAI client
+- ✅ Speed and cost benefits are real
+- ❌ Agent SDK requires `json_schema` for structured outputs
+- ❌ Only specific Groq models support `json_schema`
+- ❌ Agent SDK strips provider prefixes, breaking GPT-OSS models
 
-```python
-# financial_research_agent/llm/groq_client.py
+#### Current Status: Reverted to OpenAI GPT-5
 
-from groq import Groq
+**Provider**: OpenAI (GPT-5, o3-mini, gpt-5-nano)
+**Cost**: ~$1.50 per comprehensive analysis
+**Speed**: Standard OpenAI API (~40 tokens/sec)
+**Quality**: Excellent
 
-def create_groq_agent(model="llama-3.3-70b-versatile", api_key=None):
-    """Create agent using Groq"""
-    client = Groq(api_key=api_key or os.getenv("GROQ_API_KEY"))
+#### Potential Future Solutions
 
-    return Agent(
-        name="Financial Analyst",
-        model=model,  # or "mixtral-8x7b-32768" for even faster
-        instructions="...",
-        tools=[brave_search, sec_filing_search],
-        client=client
-    )
-```
+**Option 1**: Wait for Agent SDK update to preserve provider prefixes
+**Option 2**: Wait for Groq to add `json_schema` to standard Llama models
+**Option 3**: Fork Agent SDK (maintenance burden)
+**Option 4**: Rewrite agents without SDK (lose structured outputs)
 
-**Groq + MCP + Brave Search**:
-
-According to the Groq MCP docs, you can use MCP tools directly:
-
-```python
-# Via MCP
-from mcp import MCPClient
-
-groq_agent = Agent(
-    model="llama-3.3-70b-versatile",
-    tools=[
-        MCPTool("brave-search"),  # MCP-wrapped Brave Search
-        MCPTool("sec-filing-retrieval")
-    ]
-)
-```
-
-**Recommendation**: Use Groq as primary LLM, OpenAI as fallback
-
-```python
-# Config
-DEFAULT_PROVIDER = "groq"  # Change from "openai"
-FALLBACK_PROVIDER = "openai"
-
-def get_agent(session_id):
-    """Get agent with Groq primary, OpenAI fallback"""
-    try:
-        return create_groq_agent(key_manager.get_session_key(session_id, "groq"))
-    except Exception as e:
-        print(f"Groq unavailable, using OpenAI: {e}")
-        return create_openai_agent(key_manager.get_session_key(session_id, "openai"))
-```
-
-**Effort**: 1 day to add Groq support
-**Savings**: ~90% cost reduction!
+**Recommendation**: Monitor for Agent SDK or Groq updates, stay with OpenAI for now
 
 ---
 
-## Updated Implementation Roadmap
+## Updated Implementation Roadmap (Post-Groq)
 
-### **Phase 2A: Free Tier Enablement** (Week 1 - 3 days)
+### **Week 1: React Integration + User-Provided Keys** (5 days)
 
 | Task | Effort | Priority |
 |------|--------|----------|
-| User-provided API keys (session-only) | 2 days | CRITICAL |
-| Groq integration as primary LLM | 1 day | HIGH |
+| Deploy Modal FastAPI bridge | 1 day | CRITICAL |
+| Set up React frontend with API client | 1 day | CRITICAL |
+| User-provided API keys (session-only, OpenAI) | 2 days | CRITICAL |
+| Enable web search toggle | 1 day | HIGH |
 
-**Result**: Users can use tool for free with their own keys
+**Result**: Users can access financial data from React UI using their own OpenAI keys
 
 ---
 
-### **Phase 2B: KB Enhancement** (Week 1-2 - 2 days)
+### **Week 2: Source-Rich UI + Polish** (5 days)
 
 | Task | Effort | Priority |
 |------|--------|----------|
-| Add Brave Search to KB queries (reuse existing) | 1 day | HIGH |
-| Source attribution UI | 0.5 days | HIGH |
-| "Enhance with web search" checkbox | 0.5 days | MEDIUM |
+| Prominent source citation display | 2 days | CRITICAL |
+| Data age warnings & confidence badges | 1 day | HIGH |
+| Expandable raw source metadata | 1 day | MEDIUM |
+| Update Figma to match data structure | 1 day | MEDIUM |
 
-**Result**: KB can answer questions about recent events, non-SEC data
+**Result**: React UI showcases verifiable SEC EDGAR sources (competitive advantage!)
 
 ---
 
-### **Phase 2C: Australian Companies** (Week 2 - 3 days)
+### **Week 3: Production Deployment** (5 days)
 
 | Task | Effort | Priority |
 |------|--------|----------|
-| 20-F filing support (foreign companies) | 2 days | MEDIUM |
-| IFRS parsing enhancements | 1 day | LOW |
-| ASX web search fallback | included | LOW |
+| Deploy React to Vercel | 1 day | CRITICAL |
+| Configure custom domain (analysis.sjpconsulting.com) | 0.5 days | HIGH |
+| Update CORS in Modal FastAPI | 0.5 days | HIGH |
+| Deploy main website (sjp-consulting-site) | 1 day | HIGH |
+| End-to-end production testing | 1 day | HIGH |
+| User documentation | 1 day | MEDIUM |
 
-**Result**: Can analyze Australian companies with US listings
+**Result**: Production system live at analysis.sjpconsulting.com
 
 ---
 
-### **Phase 3: Agent Composability** (Week 3 - 3 days)
+### **Phase 2 (Future): Feature Enhancements**
 
 | Task | Effort | Priority |
 |------|--------|----------|
-| Wrap agents as reusable tools | 2 days | MEDIUM |
-| Multi-company comparison agent | 1 day | MEDIUM |
+| 20-F filing support (Australian/foreign companies) | 2 days | MEDIUM |
+| Agent composability (multi-company comparison) | 2 days | MEDIUM |
+| Groq integration (if/when compatible) | 1 day | LOW |
 
-**Result**: Can compare companies side-by-side
+**Result**: Extended functionality based on user demand
 
 ---
 
-## Revised Technology Stack
+## Revised Technology Stack (Post-Groq)
 
-### LLM Providers (User Choice)
+### LLM Providers
 
-**Primary**: Groq (Llama 3.3 70B)
-- Speed: 300+ tokens/sec
-- Cost: $0.05-0.08 per 1M tokens
-- Quality: Excellent for financial analysis
+**Current**: OpenAI (GPT-5, o3-mini, gpt-5-nano)
+- Cost: ~$1.50 per analysis
+- Speed: Standard OpenAI (~40 tokens/sec)
+- Quality: Excellent
+- **User-provided keys**: Session-only, never stored
 
-**Fallback**: OpenAI (GPT-4o)
-- Higher quality for complex reasoning
-- Slower, more expensive
-- Use for edge cases only
-
-**Future**: Anthropic Claude (if user provides key)
+**Future**: Groq (if Agent SDK compatibility resolved)
+- Potential 90% cost savings
+- 10-100x faster
+- Monitoring for SDK updates
 
 ### Search & Data
 
@@ -659,34 +626,31 @@ def get_agent(session_id):
 
 ---
 
-## Cost Analysis: Free Tier with User Keys
+## Cost Analysis: Free Tier with User Keys (Updated)
 
-### User-Provided Keys (Your Preferred Model)
+### User-Provided Keys (Recommended Model)
 
 **Per Analysis** (comprehensive):
-- Groq LLM: ~$0.01 (vs $0.50 OpenAI)
-- Brave Search: ~$0.015 (5 searches)
+- OpenAI GPT-5 LLM: ~$1.50
+- Brave Search: ~$0.015 (5 searches, optional)
 - SEC API: Free
-- **Total: ~$0.025 per analysis**
+- **Total: ~$1.50-1.52 per analysis** (user pays via their OpenAI key)
 
-**For 100 analyses/month**: ~$2.50 (user pays via their Groq key)
+**For 100 analyses/month**: ~$150 (user pays directly to OpenAI, not to you)
 
-### System-Provided Keys (Fallback)
+### System-Provided Keys (Fallback - Not Recommended)
 
 **Rate Limits** (to prevent abuse):
-- Free tier: 5 analyses/month per user
-- System pays: ~$0.125 ($0.025 × 5)
-- Affordable for demo/trial
+- Free tier: 3 analyses/month per user
+- System pays: ~$4.50 ($1.50 × 3)
+- Only sustainable with strict rate limits
 
-**Pro tier** (if you add later):
-- 50 analyses/month
-- User provides key OR subscribes ($9.99/mo)
-- Your cost: $0 (they provide key) or ~$1.25 if you provide
+**Pro tier** (if you add subscription model):
+- Option A: User provides OpenAI key → Unlimited → Your cost: $0
+- Option B: $19.99/mo → 20 analyses → Your cost: $30, profit: -$10 (loss!)
+- Option C: $49.99/mo → 50 analyses → Your cost: $75, profit: -$25 (loss!)
 
-**Enterprise**:
-- Unlimited
-- Must provide own keys
-- Your cost: $0
+**Conclusion**: User-provided keys are CRITICAL for sustainability
 
 ---
 
@@ -713,74 +677,108 @@ def get_agent(session_id):
 
 ---
 
-## Final Recommendations
+## Final Recommendations (Revised Post-Groq)
 
-### ✅ **Do Immediately** (Next 3 Days)
+### ✅ **Do Immediately - Week 1** (5 days)
 
-1. **Groq Integration** - 1 day
-   - Add Groq as primary LLM
-   - 90% cost savings
-   - Much faster
+**Focus**: Get React integration working with user-provided keys
 
-2. **User-Provided Keys** - 2 days
-   - Session-only key storage
-   - Enable free tier
-   - Clear deletion instructions
+1. **Modal FastAPI Bridge** - 1 day
+   - Deploy modal_fastapi_bridge.py from docs/integration/
+   - Test /api/health and /api/query endpoints
 
-### ✅ **Do Next Week** (Days 4-7)
+2. **React Frontend Setup** - 1 day
+   - Copy react_api_integration.ts to Gradioappfrontend/src/api/
+   - Create .env.local with Modal URL
+   - Test connection
 
-3. **Brave Search KB Enhancement** - 1 day
-   - Reuse existing Brave Search
-   - Add to KB queries
-   - Source attribution
+3. **User-Provided API Keys** - 2 days
+   - Add API key input in React UI
+   - Session-only storage (never disk)
+   - Clear user instructions for key management
 
-4. **20-F Support** - 2 days
-   - Australian companies
-   - Other foreign companies
-   - IFRS parsing
+4. **Web Search Toggle** - 1 day
+   - Add checkbox in React UI
+   - Pass `enable_web_search` to FastAPI
+   - Test Brave Search fallback
 
-### 📋 **Do Later** (Week 2-3)
+**Deliverable**: Working React app at localhost:3000 querying Modal API with user's OpenAI key
 
-5. **Agent Composability** - 2 days
-   - Wrap agents as tools
-   - Enable multi-company comparison
+### ✅ **Do Next - Week 2** (5 days)
 
-6. **UX Polish** - 2 days
-   - Tab reorganization
-   - Template fixes
-   - Settings panel
+**Focus**: Source-rich UI that showcases verifiability
 
-### ❌ **Skip**
+5. **Prominent Source Display** - 2 days
+   - Source citations card (not footnote!)
+   - Confidence badges
+   - Data age warnings
 
-- ML forecasting (your decision - agreed!)
+6. **Expandable Source Metadata** - 1 day
+   - Accordion for chunk-level details
+   - Distance scores, timestamps, sections
+
+7. **Figma Updates** - 1 day
+   - Adapt Figma to match data structure
+   - Add source cards, confidence badges
+
+8. **Polish & Testing** - 1 day
+   - End-to-end testing
+   - Bug fixes
+
+**Deliverable**: Beautiful source-rich UI showcasing SEC EDGAR data quality
+
+### ✅ **Do Last - Week 3** (5 days)
+
+**Focus**: Production deployment
+
+9. **Deploy to Production** - 3 days
+   - React to Vercel
+   - Custom domain (analysis.sjpconsulting.com)
+   - Main website updates
+
+10. **Documentation & Launch** - 2 days
+    - User documentation
+    - Launch announcement
+
+**Deliverable**: Live production system
+
+### 📋 **Do Later - Phase 2** (Future)
+
+11. **20-F Support** - Australian/foreign companies (2 days)
+12. **Agent Composability** - Multi-company comparison (2 days)
+13. **Groq Integration** - If/when Agent SDK compatible (1 day)
+
+### ❌ **Skip** (As Discussed)
+
+- ~~Groq integration~~ (not compatible with Agent SDK)
+- ML forecasting (your decision)
 - Tavily (you have Brave)
-- React migration (stay with Gradio - agreed!)
-- PostgreSQL (SQLite is fine for now)
+- Full Gradio→React migration (keep both)
+- PostgreSQL (SQLite is fine)
 
 ---
 
-## Questions for You
+## Key Decision: User-Provided Keys are CRITICAL
 
-1. **Groq Models**: Which model preference?
-   - Llama 3.3 70B (best quality, $0.08/1M out)
-   - Mixtral 8x7B (faster, $0.024/1M out)
-   - Both (let user choose)?
+**With Groq unavailable**, OpenAI costs make system-provided keys unsustainable:
 
-2. **Free Tier Limits**: Without user key, how many analyses?
-   - 5/month (conservative)
-   - 10/month (generous)
-   - Unlimited (risky)?
+| Model | Per User | 100 Users | 1000 Users |
+|-------|----------|-----------|------------|
+| System provides keys (3 free analyses/mo) | $4.50/mo | $450/mo | $4,500/mo |
+| User provides keys | $0 | $0 | $0 |
 
-3. **Australian Companies**: Priority level?
-   - High (do in Phase 2)
-   - Medium (do in Phase 3)
-   - Low (do later if requested)
-
-4. **Agent Composability**: Needed now or later?
-   - Phase 2 (for multi-company)
-   - Phase 3 (after basics work)
-   - Phase 4 (nice to have)
+**Recommendation**: Make user-provided keys **required** (not optional) until Groq is available.
 
 ---
 
-**Ready to start implementation?** Shall we begin with Groq integration + user-provided keys (3 days)?
+## Next Steps
+
+**Ready to start Week 1?**
+
+1. Deploy Modal FastAPI bridge (docs/integration/modal_fastapi_bridge.py)
+2. Set up React frontend with API client
+3. Add user API key input
+4. Enable web search toggle
+
+**Estimated time to first working demo**: 30 minutes (Modal + React connection)
+**Estimated time to production**: 3 weeks
