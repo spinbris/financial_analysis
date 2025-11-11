@@ -154,7 +154,10 @@ class EnhancedFinancialResearchManager:
                 # Don't fail if callback has issues
                 pass
 
-    async def run(self, query: str) -> None:
+    async def run(self, query: str, ticker: str | None = None) -> None:
+        # Store ticker for use by other methods
+        self.ticker = ticker
+
         # Create timestamped session directory
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.session_dir = self.output_dir / timestamp
@@ -200,7 +203,7 @@ class EnhancedFinancialResearchManager:
 
                     self._report_progress(0.40, "Extracting financial statements (40+ line items)...")
                     # Gather financial metrics and statements
-                    metrics_results = await self._gather_financial_metrics(query)
+                    metrics_results = await self._gather_financial_metrics(query, ticker=self.ticker)
 
                     self._report_progress(0.55, "Running specialist financial analyses...")
                     # Gather specialist analyses and save separately
@@ -569,7 +572,7 @@ class EnhancedFinancialResearchManager:
 
         return warnings
 
-    async def _gather_financial_metrics(self, query: str) -> FinancialMetrics | None:
+    async def _gather_financial_metrics(self, query: str, ticker: str | None = None) -> FinancialMetrics | None:
         """Gather financial statements and calculate comprehensive ratios."""
         if not self.edgar_server:
             return None
@@ -604,25 +607,33 @@ class EnhancedFinancialResearchManager:
             if not company_name:
                 company_name = "Company"
 
+            # Use ticker if provided (from CLI), otherwise use parsed company_name
+            lookup_key = ticker if ticker else company_name
+
             # PERFORMANCE: Check cache first
-            cached_statements = self.cache.get(company_name, "financial_statements")
+            cached_statements = self.cache.get(lookup_key, "financial_statements")
             if cached_statements:
-                self.console.print(f"[dim]✓ Using cached financial data for {company_name}[/dim]")
+                self.console.print(f"[dim]✓ Using cached financial data for {lookup_key}[/dim]")
                 statements_data = cached_statements
             else:
                 # Step 1: Use deterministic extraction to get complete financial data
-                self.printer.update_item("metrics", f"Extracting financial data for {company_name} using deterministic MCP tools...")
+                self.printer.update_item("metrics", f"Extracting financial data for {lookup_key} using deterministic MCP tools...")
 
                 statements_data = None
                 try:
                     statements_data = await extract_financial_data_deterministic(
                         self.edgar_server,
-                        company_name
+                        lookup_key
                     )
 
-                    # PERFORMANCE: Cache the extracted data
+                    # PERFORMANCE: Cache the extracted data using ticker (not parsed company_name)
                     if statements_data:
-                        self.cache.set(company_name, "financial_statements", statements_data)
+                        self.cache.set(lookup_key, "financial_statements", statements_data)
+
+                        # Extract official company name from statements_data if available
+                        if 'company_name' in statements_data:
+                            company_name = statements_data['company_name']
+
                 except Exception as e:
                     self.console.print(f"[yellow]Warning: Deterministic extraction failed: {e}[/yellow]")
                     import traceback
@@ -708,18 +719,23 @@ class EnhancedFinancialResearchManager:
                     is_data = statements_data['income_statement'].get('line_items', statements_data['income_statement'])
                     cf_data = statements_data['cash_flow_statement'].get('line_items', statements_data['cash_flow_statement'])
 
+                # Build metrics query with JSON dumps - using string concatenation to avoid f-string issues
+                bs_json = json.dumps(bs_data, indent=2)
+                is_json = json.dumps(is_data, indent=2)
+                cf_json = json.dumps(cf_data, indent=2)
+
                 metrics_query = f"""Query: {query}
 
 Financial statements have been pre-extracted from SEC EDGAR using deterministic get_company_facts API:
 
 Balance Sheet ({len(bs_data)} line items):
-{json.dumps(bs_data, indent=2)}
+{bs_json}
 
 Income Statement ({len(is_data)} line items):
-{json.dumps(is_data, indent=2)}
+{is_json}
 
 Cash Flow Statement ({len(cf_data)} line items):
-{json.dumps(cf_data, indent=2)}
+{cf_json}
 
 Your task:
 1. Use the provided financial statement data above (with _Current and _Prior suffixes)
@@ -814,6 +830,22 @@ Use get_company_facts to get ALL available XBRL data."""
             # Save financial metrics (04_financial_metrics.md)
             metrics_content = format_financial_metrics(metrics, company_name)
             self._save_output("04_financial_metrics.md", metrics_content)
+
+            # Save metadata.json for web UI discovery
+            if statements_data and self.session_dir:
+                metadata = {
+                    "ticker": statements_data.get('ticker', lookup_key),
+                    "company_name": company_name,
+                    "cik": statements_data.get('cik'),
+                    "form_type": statements_data.get('form_type'),
+                    "fiscal_year_end": statements_data.get('fiscal_year_end'),
+                    "filing_date": statements_data.get('filing_date'),
+                    "is_foreign_filer": statements_data.get('is_foreign_filer', False),
+                    "analysis_timestamp": self.session_dir.name,
+                }
+                metadata_file = self.session_dir / "metadata.json"
+                with open(metadata_file, 'w') as f:
+                    json.dump(metadata, f, indent=2)
 
             # Copy raw XBRL CSV files to output folder for audit trail
             self._copy_xbrl_audit_files(company_name)
@@ -1017,11 +1049,11 @@ Use get_company_facts to get ALL available XBRL data."""
         report_content += f"## Executive Summary\n\n{report.executive_summary}\n\n"
         report_content += f"## Key Takeaways\n\n"
         for i, takeaway in enumerate(report.key_takeaways, 1):
-            report_content += f"{i}. {takeaway}\n"
-        report_content += f"\n## Full Report\n\n{report.markdown_report}\n\n"
+            report_content += f"{i}. {takeaway}\n\n"
+        report_content += f"## Full Report\n\n{report.markdown_report}\n\n"
         report_content += f"## Follow-up Questions\n\n"
         for i, question in enumerate(report.follow_up_questions, 1):
-            report_content += f"{i}. {question}\n"
+            report_content += f"{i}. {question}\n\n"
 
         # Add attribution footer
         report_content += "\n\n---\n\n"
