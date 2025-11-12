@@ -9,6 +9,9 @@ import gradio as gr
 import asyncio
 from pathlib import Path
 from datetime import datetime
+import yfinance as yf
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 from financial_research_agent.manager_enhanced import EnhancedFinancialResearchManager
 
@@ -806,6 +809,106 @@ The following companies are not yet in the knowledge base:
         else:
             return "*No session keys to clear*"
 
+    def fetch_stock_price_chart(self, ticker: str, period: str = "1y"):
+        """Fetch and generate stock price chart using yfinance."""
+        try:
+            if not ticker or ticker.strip() == "":
+                return None, "", "Please enter a valid ticker symbol."
+
+            ticker = ticker.strip().upper()
+
+            # Fetch stock data
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period=period)
+
+            if hist.empty:
+                return None, "", f"No data found for ticker '{ticker}'. Please check the symbol and try again."
+
+            # Get company name
+            try:
+                company_name = stock.info.get('longName', ticker)
+                if not company_name or company_name == ticker:
+                    company_name = stock.info.get('shortName', ticker)
+            except:
+                company_name = ticker
+
+            # Create figure with secondary y-axis
+            fig = make_subplots(
+                rows=2, cols=1,
+                shared_xaxes=True,
+                vertical_spacing=0.03,
+                subplot_titles=(f'{ticker} Stock Price', 'Volume'),
+                row_heights=[0.7, 0.3]
+            )
+
+            # Add price line
+            fig.add_trace(
+                go.Scatter(
+                    x=hist.index,
+                    y=hist['Close'],
+                    name='Close Price',
+                    line=dict(color='#0066cc', width=2)
+                ),
+                row=1, col=1
+            )
+
+            # Add volume bars
+            fig.add_trace(
+                go.Bar(
+                    x=hist.index,
+                    y=hist['Volume'],
+                    name='Volume',
+                    marker=dict(color='#7f8c8d')
+                ),
+                row=2, col=1
+            )
+
+            # Update layout
+            fig.update_layout(
+                title=f'{ticker} - {period.upper()} Performance',
+                xaxis_title='',
+                yaxis_title='Price (USD)',
+                yaxis2_title='Volume',
+                hovermode='x unified',
+                template='plotly_white',
+                height=600,
+                showlegend=True,
+                legend=dict(
+                    yanchor="top",
+                    y=0.99,
+                    xanchor="left",
+                    x=0.01
+                )
+            )
+
+            # Calculate statistics
+            current_price = hist['Close'].iloc[-1]
+            start_price = hist['Close'].iloc[0]
+            change = current_price - start_price
+            change_pct = (change / start_price) * 100
+            high_52w = hist['High'].max()
+            low_52w = hist['Low'].min()
+            avg_volume = hist['Volume'].mean()
+
+            # Format statistics
+            stats_md = f"""
+### Stock Statistics ({period.upper()})
+
+**Current Price:** ${current_price:.2f}
+**Change:** ${change:+.2f} ({change_pct:+.2f}%)
+**52-Week High:** ${high_52w:.2f}
+**52-Week Low:** ${low_52w:.2f}
+**Avg Volume:** {avg_volume:,.0f}
+
+*Data Source: Yahoo Finance*
+*Last Updated: {hist.index[-1].strftime('%Y-%m-%d')}*
+            """
+
+            return fig, company_name, stats_md
+
+        except Exception as e:
+            return None, "", f"Error fetching data for '{ticker}': {str(e)}"
+
     def create_interface(self):
         """Create the Gradio interface."""
 
@@ -1048,11 +1151,26 @@ The following companies are not yet in the knowledge base:
                     font-size: 14px !important;
                 }
 
-                /* Tabs */
+                /* Tabs - Force wrapping */
+                .tabs {
+                    display: flex !important;
+                    flex-wrap: wrap !important;
+                }
+
+                .tab-nav,
+                .tab-nav.svelte-1b6s6s,
+                div[role="tablist"] {
+                    display: flex !important;
+                    flex-wrap: wrap !important;
+                    max-width: 100% !important;
+                    overflow: visible !important;
+                }
+
                 .tab-nav button {
                     font-weight: 500 !important;
                     font-size: 15px !important;
                     padding: 12px 24px !important;
+                    flex-shrink: 0 !important;
                     border-radius: 8px 8px 0 0 !important;
                     color: #6b7280 !important;
                     transition: all 0.2s ease !important;
@@ -1250,34 +1368,38 @@ The following companies are not yet in the knowledge base:
                 except Exception as e:
                     return f"### 💾 Knowledge Base Status\n\n*Unable to load: {str(e)}*"
 
-            def toggle_kb_details(current_visibility, current_content):
+            # Load KB status when app starts
+            app.load(fn=load_kb_status, outputs=[kb_status_banner])
+
+            # State to track visibility and content
+            details_state = gr.State(value={"visible": False, "content": ""})
+
+            def toggle_with_state(state):
+                """Toggle function that uses state instead of component properties"""
                 from financial_research_agent.rag.intelligence import get_kb_detailed_status
                 from financial_research_agent.rag.chroma_manager import FinancialRAGManager
 
                 # If currently visible, hide it
-                if current_visibility:
-                    return gr.update(visible=False), "📋 View Details"
+                if state["visible"]:
+                    return gr.update(visible=False), "📋 View Details", {"visible": False, "content": state["content"]}
 
                 # If currently hidden, show it (load content if not loaded yet)
                 try:
-                    if not current_content or current_content == "":
+                    if not state["content"]:
                         rag = FinancialRAGManager(persist_directory="./chroma_db")
                         content = get_kb_detailed_status(rag)
                     else:
-                        content = current_content  # Use cached content
+                        content = state["content"]  # Use cached content
 
-                    return gr.update(value=content, visible=True), "🔼 Hide Details"
+                    return gr.update(value=content, visible=True), "🔼 Hide Details", {"visible": True, "content": content}
                 except Exception as e:
-                    return gr.update(value=f"*Unable to load details: {str(e)}*", visible=True), "🔼 Hide Details"
-
-            # Load KB status when app starts
-            app.load(fn=load_kb_status, outputs=[kb_status_banner])
+                    return gr.update(value=f"*Unable to load details: {str(e)}*", visible=True), "🔼 Hide Details", {"visible": True, "content": ""}
 
             # Toggle details when button clicked
             view_details_btn.click(
-                fn=toggle_kb_details,
-                inputs=[kb_details_section.visible, kb_details_section.value],
-                outputs=[kb_details_section, view_details_btn]
+                fn=toggle_with_state,
+                inputs=[details_state],
+                outputs=[kb_details_section, view_details_btn, details_state]
             )
 
             with gr.Tabs() as main_tabs:
@@ -1388,7 +1510,7 @@ The following companies are not yet in the knowledge base:
                     with gr.Tabs():
 
                         # ==================== TAB 2: Comprehensive Report ====================
-                        with gr.Tab("📄 Comprehensive Report", id=1):
+                        with gr.Tab("📄 Summary", id=1):
                             gr.Markdown(
                                 """
                                 ## Full Investment-Grade Research Report
@@ -1443,7 +1565,7 @@ The following companies are not yet in the knowledge base:
                                 )
 
                         # ==================== TAB 4: Financial Metrics ====================
-                        with gr.Tab("📈 Financial Metrics & Ratios", id=3):
+                        with gr.Tab("📈 Metrics", id=3):
                             gr.Markdown(
                                 """
                                 ## Financial Metrics Analysis with YoY Comparison
@@ -1463,7 +1585,7 @@ The following companies are not yet in the knowledge base:
                                 )
 
                         # ==================== TAB 5: Financial Analysis ====================
-                        with gr.Tab("💡 Financial Analysis", id=4):
+                        with gr.Tab("💡 Analysis", id=4):
                             gr.Markdown(
                                 """
                                 ## Specialist Financial Analysis (800-1200 words)
@@ -1502,7 +1624,7 @@ The following companies are not yet in the knowledge base:
                                 )
 
                         # ==================== TAB 6: Risk Analysis ====================
-                        with gr.Tab("⚠️ Risk Analysis", id=5):
+                        with gr.Tab("⚠️ Risks", id=5):
                             gr.Markdown(
                                 """
                                 ## Specialist Risk Assessment (800-1200 words)
@@ -1528,7 +1650,7 @@ The following companies are not yet in the knowledge base:
                                 )
 
                         # ==================== TAB 7: Data Verification ====================
-                        with gr.Tab("✅ Data Verification", id=6):
+                        with gr.Tab("✅ Checks", id=6):
                             gr.Markdown(
                                 """
                                 ## Data Quality & Validation Report
@@ -1570,8 +1692,54 @@ The following companies are not yet in the knowledge base:
                                 elem_classes=["report-content"]
                             )
 
-                        # ==================== TAB 9: EDGAR Filings (Dev) ====================
-                        with gr.Tab("📄 EDGAR Filings", id=8):
+                        # ==================== TAB 9: Stock Price ====================
+                        with gr.Tab("📈 Stock Price", id=9):
+                            gr.Markdown(
+                                """
+                                ## Live Stock Price Charts
+                                *Real-time stock price data from Yahoo Finance*
+
+                                Enter a ticker symbol to view interactive price charts and key statistics.
+                                Data is fetched on-demand and not stored in the knowledge base.
+                                """
+                            )
+
+                            with gr.Row():
+                                with gr.Column(scale=3):
+                                    stock_ticker_input = gr.Textbox(
+                                        label="Ticker Symbol",
+                                        placeholder="e.g., AAPL, MSFT, GOOGL",
+                                        value=""
+                                    )
+                                with gr.Column(scale=2):
+                                    stock_period_dropdown = gr.Dropdown(
+                                        label="Time Period",
+                                        choices=["1mo", "3mo", "6mo", "1y", "2y", "5y"],
+                                        value="1y"
+                                    )
+                                with gr.Column(scale=1):
+                                    fetch_stock_btn = gr.Button(
+                                        "📊 Fetch Chart",
+                                        variant="primary"
+                                    )
+
+                            # Company name display
+                            stock_company_name = gr.Markdown(
+                                visible=False,
+                                elem_classes=["report-content"]
+                            )
+
+                            stock_chart_output = gr.Plot(
+                                label="Stock Price Chart",
+                                visible=True
+                            )
+
+                            stock_stats_output = gr.Markdown(
+                                elem_classes=["report-content"]
+                            )
+
+                        # ==================== TAB 10: EDGAR Filings (Dev) ====================
+                        with gr.Tab("📄 EDGAR Filings", id=10):
                             gr.Markdown(
                                 """
                                 ## SEC EDGAR Filings Data
@@ -1658,6 +1826,22 @@ The following companies are not yet in the knowledge base:
                 outputs=[kb_results_output]
             )
 
+            # Stock chart fetch button - wrapper to format company name output
+            def fetch_and_format(ticker, period):
+                fig, company_name, stats = self.fetch_stock_price_chart(ticker, period)
+                # Format company name for display
+                if company_name:
+                    company_display = gr.update(value=f"### {company_name}", visible=True)
+                else:
+                    company_display = gr.update(value="", visible=False)
+                return fig, company_display, stats
+
+            fetch_stock_btn.click(
+                fn=fetch_and_format,
+                inputs=[stock_ticker_input, stock_period_dropdown],
+                outputs=[stock_chart_output, stock_company_name, stock_stats_output]
+            )
+
 
             # Populate dropdown on app load
             def load_dropdown_choices():
@@ -1671,6 +1855,10 @@ The following companies are not yet in the knowledge base:
                 fn=load_dropdown_choices,
                 outputs=[existing_dropdown]
             )
+
+            # TODO: Pre-populate stock ticker from Home page query
+            # Feature temporarily disabled - requires different approach for tab selection events
+            # The .select() event doesn't provide tab index, need to investigate alternative
 
         return app
 
