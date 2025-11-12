@@ -1708,7 +1708,7 @@ The following companies are not yet in the knowledge base:
                                 with gr.Column(scale=3):
                                     stock_ticker_input = gr.Textbox(
                                         label="Ticker Symbol",
-                                        placeholder="e.g., AAPL, MSFT, GOOGL",
+                                        placeholder="e.g., AAPL, MSFT, GOOGL, WBC.AX",
                                         value=""
                                     )
                                 with gr.Column(scale=2):
