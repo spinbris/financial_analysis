@@ -39,16 +39,15 @@ def create_theme():
     )
 
 
-# Query templates
-QUERY_TEMPLATES = {
-    "Tesla Q3 2025 Performance": "Analyze Tesla's Q3 2025 financial performance",
-    "Apple Quarterly Analysis": "Analyze Apple's most recent quarterly performance",
-    "Microsoft Financial Health": "Evaluate Microsoft's financial health and stability",
-    "Amazon Risk Assessment": "What are the key financial risks facing Amazon?",
-    "NVIDIA Profitability Analysis": "Analyze NVIDIA's profitability trends",
-    "Google vs Microsoft Comparison": "Compare Google and Microsoft's financial performance",
-    "Meta Investment Potential": "Is Meta a good investment based on recent financials?",
-}
+# KB Query examples
+KB_QUERY_EXAMPLES = [
+    "What are Apple's main revenue sources?",
+    "Compare Microsoft and Google's cloud strategies",
+    "What are Tesla's key financial risks?",
+    "How has Amazon's profitability changed over time?",
+    "What is NVIDIA's debt-to-equity ratio?",
+    "Compare profit margins across tech companies",
+]
 
 
 class WebApp:
@@ -63,17 +62,8 @@ class WebApp:
         from financial_research_agent.config import AgentConfig
         self.llm_provider = AgentConfig.DEFAULT_PROVIDER  # Use config default
 
-        # Set SEC EDGAR user agent for edgartools (required for company lookups)
-        import os
-        from edgar import set_identity
-        user_agent = os.getenv(
-            "SEC_EDGAR_USER_AGENT",
-            "FinancialResearchAgent/1.0 (stephen.parton@sjpconsulting.com)"
-        )
-        set_identity(user_agent)
-
     def get_existing_analyses(self):
-        """Get list of existing analysis directories."""
+        """Get list of existing analysis directories with company names."""
         output_dir = Path("financial_research_agent/output")
         if not output_dir.exists():
             return []
@@ -85,7 +75,7 @@ class WebApp:
             reverse=True  # Most recent first
         )
 
-        # Extract ticker from 00_query.md or directory metadata
+        # Extract company name and ticker from 00_query.md
         analyses = []
         for dir_path in dirs[:50]:  # Limit to 50 most recent
             query_file = dir_path / "00_query.md"
@@ -93,10 +83,26 @@ class WebApp:
 
             # Check if analysis is complete
             if comprehensive_file.exists():
-                # Try to extract company/ticker from query file
+                # Try to extract company name and ticker from metadata.json (preferred)
                 ticker = "Unknown"
-                if query_file.exists():
+                company_name = None
+
+                # First, try to read from metadata.json
+                metadata_file = dir_path / "metadata.json"
+                if metadata_file.exists():
+                    try:
+                        import json
+                        with open(metadata_file, 'r') as f:
+                            metadata = json.load(f)
+                            ticker = metadata.get('ticker', 'Unknown')
+                            company_name = metadata.get('company_name')
+                    except Exception:
+                        pass  # Fall through to query file parsing
+
+                # Fallback to query file extraction if metadata not available
+                if ticker == "Unknown" and query_file.exists():
                     content = query_file.read_text()
+
                     # Use the sophisticated ticker extraction from utils.py
                     from financial_research_agent.rag.utils import extract_tickers_from_query
                     detected_tickers = extract_tickers_from_query(content)
@@ -109,14 +115,33 @@ class WebApp:
                         if match:
                             ticker = match.group(1)
 
+                # Create a nice label with company name and ticker
+                if company_name:
+                    # Format: "Apple Inc. (AAPL)" or "WESTPAC BANKING CORP (WBKCY)"
+                    label = f"{company_name} ({ticker})"
+                else:
+                    # Fallback to just ticker if no company name available
+                    label = ticker
+
                 analyses.append({
-                    'label': f"{ticker} - {dir_path.name}",
+                    'label': label,
                     'value': str(dir_path),
                     'ticker': ticker,
+                    'company_name': company_name,
                     'timestamp': dir_path.name
                 })
 
-        return analyses
+        # Deduplicate by ticker - keep most recent for each ticker
+        seen_tickers = {}
+        for analysis in analyses:
+            ticker_key = analysis['ticker']
+            if ticker_key not in seen_tickers or analysis['timestamp'] > seen_tickers[ticker_key]['timestamp']:
+                seen_tickers[ticker_key] = analysis
+
+        # Convert back to list and sort alphabetically by ticker
+        unique_analyses = list(seen_tickers.values())
+        unique_analyses.sort(key=lambda x: x['ticker'])
+        return unique_analyses
 
     def load_existing_analysis(self, selected_label: str):
         """Load an existing analysis from disk."""
@@ -125,14 +150,14 @@ class WebApp:
         import plotly.graph_objects as go
 
         if not selected_label or selected_label not in self.analysis_map:
-            return ("", "", "", "", "", "", "", None, None)
+            return ("", "", "", "", "", "", "", "", "", None, None, None)
 
         analysis_path = self.analysis_map[selected_label]
         dir_path = Path(analysis_path)
         if not dir_path.exists():
             return (
                 "❌ Analysis directory not found",
-                "", "", "", "", "", "", None, None
+                "", "", "", "", "", "", "", "", None, None, None
             )
 
         # Load report files
@@ -143,7 +168,9 @@ class WebApp:
             'metrics': '04_financial_metrics.md',
             'financial_analysis': '05_financial_analysis.md',
             'risk_analysis': '06_risk_analysis.md',
-            'verification': 'data_verification.md'
+            'verification': '08_verification.md',
+            'search_results': '02_search_results.md',
+            'edgar_filings': '02_edgar_filings.md'
         }
 
         for key, filename in file_map.items():
@@ -205,6 +232,8 @@ class WebApp:
             reports.get('financial_analysis', ''),
             reports.get('risk_analysis', ''),
             reports.get('verification', ''),
+            reports.get('search_results', '*Search results not available for this analysis*'),
+            reports.get('edgar_filings', '*EDGAR filings data not available for this analysis*'),
             margin_chart_fig,
             metrics_chart_fig,
             risk_chart_fig
@@ -784,596 +813,778 @@ The following companies are not yet in the knowledge base:
             theme=create_theme(),
             title="Financial Research Agent",
             css="""
-                .query-box textarea { font-size: 16px; }
-                .status-box { padding: 20px; border-radius: 8px; }
-                .report-content { font-family: 'Georgia', serif; line-height: 1.6; }
-                .template-button { margin: 4px; }
+                /* ==================== PROFESSIONAL FINANCIAL PLATFORM STYLING ==================== */
 
-                /* Right-align numbers in markdown tables */
-                .report-content table td:nth-child(2),
-                .report-content table td:nth-child(3),
-                .report-content table td:nth-child(4),
-                .report-content table td:nth-child(5) {
-                    text-align: right;
+                /* Global Container */
+                .gradio-container {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif !important;
+                    max-width: 1600px;
+                    margin: 0 auto;
+                    background: #fafbfc;
                 }
 
-                /* Keep first column (labels) left-aligned */
-                .report-content table td:first-child {
-                    text-align: left;
+                /* Clean Card-Based Layout */
+                .gr-box, .gr-form, .gr-panel {
+                    border-radius: 12px !important;
+                    border: 1px solid #e1e4e8 !important;
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+                    background: white !important;
+                    padding: 20px !important;
                 }
 
-                /* Better table formatting */
+                /* Header Typography */
+                h1 {
+                    font-size: 2.25rem !important;
+                    font-weight: 700 !important;
+                    color: #0d1117 !important;
+                    letter-spacing: -0.02em !important;
+                    margin-bottom: 0.5rem !important;
+                }
+
+                h2 {
+                    font-size: 1.75rem !important;
+                    font-weight: 600 !important;
+                    color: #1f2937 !important;
+                    margin-top: 1.5rem !important;
+                    margin-bottom: 1rem !important;
+                }
+
+                h3 {
+                    font-size: 1.25rem !important;
+                    font-weight: 600 !important;
+                    color: #374151 !important;
+                    margin-top: 1.25rem !important;
+                    margin-bottom: 0.75rem !important;
+                }
+
+                /* Primary Action Buttons */
+                .gr-button-primary {
+                    background: linear-gradient(135deg, #0066cc 0%, #0052a3 100%) !important;
+                    border: none !important;
+                    border-radius: 8px !important;
+                    font-weight: 600 !important;
+                    font-size: 15px !important;
+                    padding: 12px 24px !important;
+                    box-shadow: 0 4px 12px rgba(0, 102, 204, 0.2) !important;
+                    transition: all 0.2s ease !important;
+                    letter-spacing: 0.01em !important;
+                }
+
+                .gr-button-primary:hover {
+                    background: linear-gradient(135deg, #0052a3 0%, #003d7a 100%) !important;
+                    box-shadow: 0 6px 16px rgba(0, 102, 204, 0.3) !important;
+                    transform: translateY(-1px) !important;
+                }
+
+                /* Secondary Buttons */
+                .gr-button-secondary {
+                    background: white !important;
+                    border: 1.5px solid #d1d5db !important;
+                    border-radius: 8px !important;
+                    color: #374151 !important;
+                    font-weight: 500 !important;
+                    transition: all 0.2s ease !important;
+                }
+
+                .gr-button-secondary:hover {
+                    border-color: #0066cc !important;
+                    background: #f8fafc !important;
+                    color: #0066cc !important;
+                }
+
+                /* Template Buttons */
+                .template-button {
+                    margin: 6px 4px !important;
+                    border-radius: 6px !important;
+                    font-size: 14px !important;
+                    padding: 8px 16px !important;
+                    background: #f3f4f6 !important;
+                    border: 1px solid #e5e7eb !important;
+                    color: #1f2937 !important;
+                    font-weight: 500 !important;
+                    transition: all 0.15s ease !important;
+                }
+
+                .template-button:hover {
+                    background: white !important;
+                    border-color: #0066cc !important;
+                    color: #0066cc !important;
+                    box-shadow: 0 2px 6px rgba(0, 102, 204, 0.1) !important;
+                }
+
+                /* Input Fields */
+                .query-box textarea,
+                input[type="text"],
+                .gr-textbox {
+                    font-size: 15px !important;
+                    border: 1.5px solid #d1d5db !important;
+                    border-radius: 8px !important;
+                    padding: 12px 16px !important;
+                    background: white !important;
+                    transition: all 0.2s ease !important;
+                }
+
+                .query-box textarea:focus,
+                input[type="text"]:focus,
+                .gr-textbox:focus {
+                    border-color: #0066cc !important;
+                    box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.1) !important;
+                    outline: none !important;
+                }
+
+                /* Status Box */
+                .status-box {
+                    padding: 24px !important;
+                    border-radius: 12px !important;
+                    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%) !important;
+                    border: 1px solid #bae6fd !important;
+                    box-shadow: 0 2px 8px rgba(14, 165, 233, 0.08) !important;
+                }
+
+                /* Report Content - Professional Reading Experience */
+                .report-content {
+                    font-family: 'Charter', 'Georgia', 'Times New Roman', serif !important;
+                    font-size: 16px !important;
+                    line-height: 1.7 !important;
+                    color: #1f2937 !important;
+                    padding: 24px !important;
+                }
+
+                .report-content p {
+                    margin-bottom: 1.25em !important;
+                }
+
+                .report-content strong {
+                    color: #0d1117 !important;
+                    font-weight: 600 !important;
+                }
+
+                /* Financial Tables - Bloomberg/Morningstar Style */
                 .report-content table {
-                    border-collapse: collapse;
-                    width: 100%;
-                    margin: 16px 0;
+                    border-collapse: collapse !important;
+                    width: 100% !important;
+                    margin: 24px 0 !important;
+                    background: white !important;
+                    border-radius: 8px !important;
+                    overflow: hidden !important;
+                    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+                }
+
+                .report-content table thead {
+                    background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%) !important;
+                    border-bottom: 2px solid #0066cc !important;
                 }
 
                 .report-content table th {
-                    background-color: #f5f7fa;
-                    font-weight: 600;
-                    padding: 12px;
-                    border-bottom: 2px solid #0066cc;
+                    font-weight: 600 !important;
+                    font-size: 13px !important;
+                    text-transform: uppercase !important;
+                    letter-spacing: 0.05em !important;
+                    padding: 14px 16px !important;
+                    color: #374151 !important;
+                    text-align: left !important;
                 }
 
                 .report-content table td {
-                    padding: 10px 12px;
-                    border-bottom: 1px solid #e0e4e8;
+                    padding: 12px 16px !important;
+                    border-bottom: 1px solid #f1f5f9 !important;
+                    font-size: 15px !important;
                 }
 
-                .report-content table tr:hover {
-                    background-color: #f9fafb;
+                /* Alternate row colors for better readability */
+                .report-content table tbody tr:nth-child(even) {
+                    background-color: #fafbfc !important;
                 }
 
-                /* Monospace for numbers */
+                .report-content table tbody tr:hover {
+                    background-color: #f0f9ff !important;
+                    transition: background-color 0.15s ease !important;
+                }
+
+                /* Right-align numeric columns */
+                .report-content table td:nth-child(2),
+                .report-content table td:nth-child(3),
+                .report-content table td:nth-child(4),
+                .report-content table td:nth-child(5),
+                .report-content table th:nth-child(2),
+                .report-content table th:nth-child(3),
+                .report-content table th:nth-child(4),
+                .report-content table th:nth-child(5) {
+                    text-align: right !important;
+                }
+
+                /* First column (labels) left-aligned */
+                .report-content table td:first-child,
+                .report-content table th:first-child {
+                    text-align: left !important;
+                    font-weight: 500 !important;
+                }
+
+                /* Monospace font for numbers - professional financial styling */
                 .report-content table td:nth-child(n+2) {
-                    font-family: 'IBM Plex Mono', 'Consolas', monospace;
-                    font-size: 0.95em;
+                    font-family: 'SF Mono', 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace !important;
+                    font-size: 14px !important;
+                    font-variant-numeric: tabular-nums !important;
+                }
+
+                /* Source Attribution Badges */
+                .report-content code {
+                    background: #f3f4f6 !important;
+                    border: 1px solid #e5e7eb !important;
+                    border-radius: 4px !important;
+                    padding: 2px 8px !important;
+                    font-size: 13px !important;
+                    font-family: 'SF Mono', Monaco, monospace !important;
+                    color: #374151 !important;
+                }
+
+                /* Enhanced Code Blocks */
+                .report-content pre {
+                    background: #f8fafc !important;
+                    border: 1px solid #e5e7eb !important;
+                    border-radius: 8px !important;
+                    padding: 16px !important;
+                    overflow-x: auto !important;
+                    font-size: 14px !important;
+                }
+
+                /* Tabs */
+                .tab-nav button {
+                    font-weight: 500 !important;
+                    font-size: 15px !important;
+                    padding: 12px 24px !important;
+                    border-radius: 8px 8px 0 0 !important;
+                    color: #6b7280 !important;
+                    transition: all 0.2s ease !important;
+                }
+
+                .tab-nav button.selected {
+                    color: #0066cc !important;
+                    background: white !important;
+                    border-bottom: 2px solid #0066cc !important;
+                    font-weight: 600 !important;
+                }
+
+                /* Markdown Lists */
+                .report-content ul,
+                .report-content ol {
+                    margin-left: 24px !important;
+                    margin-bottom: 1.25em !important;
+                }
+
+                .report-content li {
+                    margin-bottom: 0.5em !important;
+                    line-height: 1.6 !important;
+                }
+
+                /* Blockquotes */
+                .report-content blockquote {
+                    border-left: 4px solid #0066cc !important;
+                    padding-left: 20px !important;
+                    margin: 20px 0 !important;
+                    color: #4b5563 !important;
+                    font-style: italic !important;
+                    background: #f8fafc !important;
+                    padding: 16px 20px !important;
+                    border-radius: 0 8px 8px 0 !important;
+                }
+
+                /* Horizontal Rules */
+                .report-content hr {
+                    border: none !important;
+                    border-top: 2px solid #e5e7eb !important;
+                    margin: 32px 0 !important;
+                }
+
+                /* Download Buttons */
+                .gr-download-button {
+                    background: #10b981 !important;
+                    color: white !important;
+                    border: none !important;
+                    border-radius: 6px !important;
+                    font-weight: 500 !important;
+                    padding: 8px 16px !important;
+                    transition: all 0.2s ease !important;
+                }
+
+                .gr-download-button:hover {
+                    background: #059669 !important;
+                    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2) !important;
+                }
+
+                /* Radio Buttons & Dropdowns */
+                .gr-radio,
+                .gr-dropdown {
+                    border-radius: 8px !important;
+                }
+
+                /* Progress Bar */
+                .progress-bar {
+                    background: linear-gradient(90deg, #0066cc, #0ea5e9) !important;
+                    border-radius: 8px !important;
+                }
+
+                /* Error Messages */
+                .error {
+                    background: #fef2f2 !important;
+                    border: 1px solid #fecaca !important;
+                    color: #991b1b !important;
+                    padding: 16px !important;
+                    border-radius: 8px !important;
+                }
+
+                /* Success Messages */
+                .success {
+                    background: #f0fdf4 !important;
+                    border: 1px solid #bbf7d0 !important;
+                    color: #166534 !important;
+                    padding: 16px !important;
+                    border-radius: 8px !important;
+                }
+
+                /* Plotly Charts */
+                .js-plotly-plot {
+                    border-radius: 12px !important;
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06) !important;
+                }
+
+                /* Footer */
+                footer {
+                    text-align: center !important;
+                    color: #6b7280 !important;
+                    font-size: 14px !important;
+                    padding: 32px 0 !important;
+                }
+
+                /* Mobile Responsiveness */
+                @media (max-width: 768px) {
+                    .gradio-container {
+                        padding: 12px !important;
+                    }
+
+                    h1 {
+                        font-size: 1.75rem !important;
+                    }
+
+                    h2 {
+                        font-size: 1.5rem !important;
+                    }
+
+                    .report-content {
+                        font-size: 15px !important;
+                        padding: 16px !important;
+                    }
+
+                    .report-content table {
+                        font-size: 13px !important;
+                    }
+                }
+
+                /* ==================== NUMBERED SECTION BADGES ==================== */
+                .section-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    margin-bottom: 16px !important;
+                }
+
+                .section-badge {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 36px;
+                    height: 36px;
+                    border-radius: 50%;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    font-weight: 600;
+                    font-size: 18px;
+                    flex-shrink: 0;
+                    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+                }
+
+                .section-title {
+                    font-size: 1.5rem !important;
+                    font-weight: 600 !important;
+                    margin: 0 !important;
+                    color: #0d1117;
+                }
+
+                /* Section containers */
+                .home-section {
+                    background: white !important;
+                    border-radius: 12px !important;
+                    padding: 24px !important;
+                    margin-bottom: 24px !important;
+                    border: 1px solid #e1e4e8 !important;
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
                 }
             """
         ) as app:
 
-            # Header
+            # Header - Simplified to match Figma design
             gr.Markdown(
                 """
-                # 📊 Financial Research Agent
-                ### *Investment-Grade Financial Analysis powered by SEC EDGAR*
+                # 📊 AI Financial Analysis Knowledge Base
+                Select companies, add new analysis, and query the knowledge base
                 """
             )
 
-            # Company-Centric Dashboard Section
-            gr.Markdown("## 🏢 Company Dashboard")
+            # Knowledge Base Status Banner (Summary only)
+            kb_status_banner = gr.Markdown(elem_classes=["status-box"])
 
+            # View Details button and expandable details section
             with gr.Row():
-                with gr.Column(scale=2):
-                    company_selector = gr.Dropdown(
-                        label="Select Company or Enter Ticker/Name",
-                        choices=[],
-                        allow_custom_value=True,
-                        interactive=True
-                    )
-                with gr.Column(scale=1):
-                    add_new_ticker = gr.Textbox(
-                        label="Or Enter Company Name/Ticker",
-                        placeholder="e.g., Apple, AAPL, Microsoft",
-                        max_lines=1
-                    )
-                with gr.Column(scale=1):
-                    add_company_btn = gr.Button("+ Add Company", variant="primary")
+                view_details_btn = gr.Button("📋 View Details", size="sm", variant="secondary")
 
-            # Company Status Card
-            company_status_card = gr.Markdown(elem_classes=["status-box"])
+            kb_details_section = gr.Markdown(visible=False, elem_classes=["status-box"])
 
-            # Action Buttons Row
-            with gr.Row():
-                ask_question_btn = gr.Button("💭 Ask Questions", variant="primary", size="lg")
-                refresh_analysis_btn = gr.Button("🔄 Refresh Analysis", variant="secondary", size="lg")
-                view_reports_btn = gr.Button("📊 View Reports", variant="secondary", size="lg")
-
-            gr.Markdown("---")
-
-            # Functions for company dashboard
-            def load_company_list():
-                """Load list of companies from knowledge base."""
+            # Initialize KB status on load
+            def load_kb_status():
+                from financial_research_agent.rag.intelligence import get_kb_summary_banner
                 from financial_research_agent.rag.chroma_manager import FinancialRAGManager
 
                 try:
                     rag = FinancialRAGManager(persist_directory="./chroma_db")
-                    companies = rag.get_companies_with_status()
-
-                    if not companies:
-                        return gr.update(choices=[], value=None)
-
-                    # Format: "AAPL - Apple Inc. (updated 2 days ago)"
-                    choices = []
-                    for company in companies:
-                        status_emoji = {"fresh": "✅", "aging": "⚠️", "stale": "🔴", "missing": "❌"}
-                        emoji = status_emoji.get(company["status"], "❓")
-                        label = f"{emoji} {company['ticker']} - {company['company']} ({company['days_old']}d ago)"
-                        choices.append((label, company["ticker"]))
-
-                    return gr.update(choices=choices)
+                    return get_kb_summary_banner(rag)
                 except Exception as e:
-                    return gr.update(choices=[], value=None)
+                    return f"### 💾 Knowledge Base Status\n\n*Unable to load: {str(e)}*"
 
-            def show_company_status(selected_input):
-                """Show status card for selected company (ticker or name)."""
-                if not selected_input:
-                    return """
-                    ### 👋 Welcome to Financial Research Agent
-
-                    **Get Started:**
-                    1. Select a company from the dropdown above (if available in your knowledge base)
-                    2. Or enter a company name or ticker symbol (e.g., "Apple", "AAPL", "Microsoft", "MSFT")
-
-                    **What You Can Do:**
-                    - 🔬 **Run Deep Analysis**: Generate comprehensive SEC filing analysis (~3-5 min)
-                    - 💬 **Ask Questions**: Query knowledge base for instant answers (~5 sec)
-                    - 📊 **View Reports**: Access detailed financial reports and charts
-
-                    **Examples:** Try "Apple", "Tesla", "AAPL", "TSLA", "Amazon", or any US public company!
-                    """
-
+            def toggle_kb_details(current_visibility, current_content):
+                from financial_research_agent.rag.intelligence import get_kb_detailed_status
                 from financial_research_agent.rag.chroma_manager import FinancialRAGManager
-                from financial_research_agent.utils.sec_filing_checker import SECFilingChecker
-                from edgar import Company, find_company
 
-                # First, try to resolve company name to ticker if needed
-                selected_ticker = selected_input.strip()
+                # If currently visible, hide it
+                if current_visibility:
+                    return gr.update(visible=False), "📋 View Details"
 
+                # If currently hidden, show it (load content if not loaded yet)
                 try:
-                    # Try direct ticker lookup first
-                    try:
-                        company = Company(selected_ticker.upper())
-                        selected_ticker = company.tickers[0] if company.tickers else selected_ticker.upper()
-                    except:
-                        # If direct lookup fails, try company name search
-                        try:
-                            results = find_company(selected_ticker)
-                            if results:
-                                if isinstance(results, list) and len(results) > 0:
-                                    selected_ticker = results[0].tickers[0] if hasattr(results[0], 'tickers') and results[0].tickers else selected_ticker.upper()
-                                else:
-                                    selected_ticker = results.tickers[0] if hasattr(results, 'tickers') and results.tickers else selected_ticker.upper()
-                        except:
-                            # Use input as-is if lookup fails
-                            selected_ticker = selected_ticker.upper()
-                except:
-                    # Use input as-is if any error
-                    selected_ticker = selected_ticker.upper()
-
-                # Now show status for the resolved ticker
-                try:
-                    rag = FinancialRAGManager(persist_directory="./chroma_db")
-                    status = rag.check_company_status(selected_ticker)
-
-                    if not status["in_kb"]:
-                        return f"""
-                        ### ❌ {selected_ticker} Not in Knowledge Base
-
-                        **To analyze this company:**
-                        1. Click "🔄 Refresh Analysis" to run a comprehensive analysis (~3-5 min, ~$0.08)
-                        2. This will extract complete financials from SEC filings and index them for instant Q&A
-
-                        **Or try web search fallback** (less reliable, no SEC data):
-                        - Type your question below and we'll attempt to answer using web sources
-                        """
-
-                    # Company is in KB - show detailed status
-                    metadata = status["metadata"]
-                    status_emoji = {"fresh": "✅", "aging": "⚠️", "stale": "🔴"}
-                    emoji = status_emoji.get(status["status"], "❓")
-
-                    output = f"""
-                    ### {emoji} {metadata['company']} ({metadata['ticker']})
-
-                    **Status:** {status["status"].upper()} | **Last Updated:** {metadata['last_updated']} ({metadata['days_old']} days ago)
-
-                    **Latest Data:**
-                    - **Period:** {metadata['period']}
-                    - **Filing:** {metadata['filing']}
-                    """
-
-                    # Check for newer filings
-                    try:
-                        checker = SECFilingChecker()
-                        comparison = checker.compare_to_indexed_date(
-                            selected_ticker,
-                            metadata['last_updated']
-                        )
-
-                        if comparison["newer_filing_available"]:
-                            output += f"""
-
-                            ### 🆕 Newer Filing Available!
-
-                            **Latest SEC Filing:** {comparison['latest_filing_type']} filed {comparison['latest_filing_date']} ({comparison['days_behind']} days newer)
-
-                            **Recommendation:** Click "🔄 Refresh Analysis" to get the latest data
-                            """
-                        else:
-                            output += f"""
-
-                            ✅ **Up to date** - No newer filings available
-                            """
-                    except Exception as e:
-                        output += f"\n\n*Could not check for newer filings: {str(e)}*"
-
-                    # Add quick actions
-                    output += f"""
-
-                    ---
-
-                    **Quick Actions:**
-                    - 💭 **Ask Questions**: Query this company's data instantly
-                    - 🔄 **Refresh Analysis**: Update with latest SEC filings
-                    - 📊 **View Reports**: See detailed analysis and charts
-                    """
-
-                    return output
-
-                except Exception as e:
-                    return f"### ❌ Error\n\nFailed to load company status:\n```\n{str(e)}\n```"
-
-            # Load companies on app start
-            app.load(fn=load_company_list, outputs=[company_selector])
-
-            # Update status card when company selected
-            company_selector.change(
-                fn=show_company_status,
-                inputs=[company_selector],
-                outputs=[company_status_card]
-            )
-
-            # Handle adding new company
-            def handle_add_company(company_input):
-                """Handle adding a new company to analyze using flexible lookup."""
-                if not company_input:
-                    return {
-                        company_status_card: "⚠️ Please enter a company name or ticker symbol",
-                        company_selector: gr.update(),
-                        add_new_ticker: gr.update()
-                    }
-
-                search_term = company_input.strip()
-
-                # Use edgartools to lookup company
-                # Note: SEC user agent is set in __init__ for all edgartools calls
-                try:
-                    from edgar import Company, find_company
-
-                    # Try direct ticker lookup first (fast)
-                    try:
-                        company = Company(search_term.upper())
-                        ticker = company.tickers[0] if company.tickers else search_term.upper()
-                        company_name = company.name if hasattr(company, 'name') else ticker
-
-                        # Success - show status for this ticker
-                        status_text = show_company_status(ticker)
-
-                        return {
-                            company_status_card: status_text,
-                            company_selector: gr.update(value=ticker),
-                            add_new_ticker: gr.update(value="")
-                        }
-                    except:
-                        # Direct lookup failed, try search
-                        pass
-
-                    # If direct lookup fails, try company name search
-                    results = find_company(search_term)
-
-                    if not results:
-                        return {
-                            company_status_card: f"""
-                            ### ❌ Company Not Found
-
-                            Could not find "{search_term}" in SEC EDGAR database.
-
-                            **Suggestions:**
-                            - Check spelling (e.g., "Apple", "Microsoft", "Tesla")
-                            - Try the stock ticker instead (e.g., "AAPL", "MSFT", "TSLA")
-                            - Make sure the company is publicly traded in the US
-
-                            **Examples that work:**
-                            - Company names: Apple, Microsoft, Tesla, Amazon
-                            - Ticker symbols: AAPL, MSFT, TSLA, AMZN
-                            """,
-                            company_selector: gr.update(),
-                            add_new_ticker: gr.update(value="")
-                        }
-
-                    # If we get multiple results, use the first match
-                    if isinstance(results, list) and len(results) > 0:
-                        # Use first result
-                        first_result = results[0]
-                        ticker = first_result.tickers[0] if hasattr(first_result, 'tickers') and first_result.tickers else search_term.upper()
-                        company_name = first_result.name if hasattr(first_result, 'name') else ticker
+                    if not current_content or current_content == "":
+                        rag = FinancialRAGManager(persist_directory="./chroma_db")
+                        content = get_kb_detailed_status(rag)
                     else:
-                        # Single result
-                        ticker = results.tickers[0] if hasattr(results, 'tickers') and results.tickers else search_term.upper()
-                        company_name = results.name if hasattr(results, 'name') else ticker
+                        content = current_content  # Use cached content
 
-                    # Show status for the found company
-                    status_text = show_company_status(ticker)
-
-                    # Add note about the lookup if company name was used
-                    if search_term.upper() != ticker:
-                        status_text = f"""
-                        ### ✅ Found: {company_name}
-
-                        *Matched "{search_term}" → Ticker: **{ticker}***
-
-                        ---
-
-                        {status_text}
-                        """
-
-                    return {
-                        company_status_card: status_text,
-                        company_selector: gr.update(value=ticker),
-                        add_new_ticker: gr.update(value="")
-                    }
-
+                    return gr.update(value=content, visible=True), "🔼 Hide Details"
                 except Exception as e:
-                    import traceback
-                    error_detail = traceback.format_exc()
-                    return {
-                        company_status_card: f"""
-                        ### ❌ Error Looking Up Company
+                    return gr.update(value=f"*Unable to load details: {str(e)}*", visible=True), "🔼 Hide Details"
 
-                        Failed to find "{search_term}" in SEC EDGAR database.
+            # Load KB status when app starts
+            app.load(fn=load_kb_status, outputs=[kb_status_banner])
 
-                        **Error:** {str(e)}
-
-                        **Suggestions:**
-                        - Try entering the stock ticker directly (e.g., AAPL, MSFT)
-                        - Check spelling of company name
-                        - Ensure company is publicly traded in the US
-
-                        <details>
-                        <summary>Technical Details</summary>
-
-                        ```
-                        {error_detail}
-                        ```
-                        </details>
-                        """,
-                        company_selector: gr.update(),
-                        add_new_ticker: gr.update(value="")
-                    }
-
-            add_company_btn.click(
-                fn=handle_add_company,
-                inputs=[add_new_ticker],
-                outputs=[company_status_card, company_selector, add_new_ticker]
+            # Toggle details when button clicked
+            view_details_btn.click(
+                fn=toggle_kb_details,
+                inputs=[kb_details_section.visible, kb_details_section.value],
+                outputs=[kb_details_section, view_details_btn]
             )
 
-            with gr.Tabs() as tabs:
+            with gr.Tabs() as main_tabs:
 
-                # ==================== TAB 1: Ask Questions ====================
-                with gr.Tab("💭 Ask Questions", id=0):
-                    gr.Markdown("## 💬 Ask Questions About Your Company")
-                    gr.Markdown("*Get instant, AI-powered answers from the knowledge base with full citations*")
+                # ==================== TAB 1: HOME ====================
+                with gr.Tab("🏠 Home", id=0) as home_tab:
 
-                    query_input = gr.Textbox(
-                        label="Your Question",
-                        placeholder="E.g., 'What were Apple's Q3 revenues?' or 'What are the main risk factors?'",
-                        lines=3,
-                        elem_classes=["query-box"]
-                    )
+                    # ==================== SECTION 1: View Existing Analysis ====================
+                    with gr.Group(elem_classes=["home-section"]):
+                        gr.HTML("""
+                            <div class="section-header">
+                                <div class="section-badge">1</div>
+                                <h2 class="section-title">View Existing Analysis</h2>
+                            </div>
+                        """)
+                        gr.Markdown("*Load a previously generated financial analysis report from your history*")
 
-                    with gr.Row():
-                        ask_btn = gr.Button("🔍 Ask Question", variant="primary", size="lg", scale=3)
-                        clear_btn = gr.Button("Clear", variant="secondary", scale=1)
-
-                    kb_results_output = gr.Markdown(
-                        value="*Select a company above and enter your question*",
-                        elem_classes=["report-content"]
-                    )
-
-                    gr.Markdown("*Common questions: 'What were Q3 revenues?' • 'What are the main risks?' • 'How has profitability changed?'*")
-
-                # ==================== TAB 2: Run/Refresh Analysis ====================
-                with gr.Tab("🔄 Run Analysis", id=1):
-                    gr.Markdown("## 🔬 Generate Comprehensive SEC Filing Analysis")
-                    gr.Markdown("""
-                    **This will:**
-                    - Extract complete financials from latest SEC filings (10-K/10-Q)
-                    - Analyze 118+ line items with comparative periods
-                    - Calculate financial ratios and metrics
-                    - Assess risk factors
-                    - Generate comprehensive 3-5 page report
-                    - Index everything for instant Q&A
-
-                    **Time:** ~3-5 minutes | **Cost:** ~$0.08 per analysis
-                    """)
-
-                    analysis_query_input = gr.Textbox(
-                        label="Analysis Query (optional - will auto-detect from selected company)",
-                        placeholder="E.g., 'Analyze Apple's latest quarterly performance'",
-                        lines=2,
-                        elem_classes=["query-box"]
-                    )
-
-                    generate_btn = gr.Button(
-                        "🚀 Run Comprehensive Analysis",
-                        variant="primary",
-                        size="lg"
-                    )
-
-                    status_output = gr.Markdown(
-                        label="Analysis Status",
-                        elem_classes=["status-box"],
-                        value="*Select a company and click 'Run Comprehensive Analysis' to begin*"
-                    )
-
-                # ==================== TAB 2: Comprehensive Report ====================
-                with gr.Tab("📄 Comprehensive Report", id=1):
-                    gr.Markdown(
-                        """
-                        ## Full Investment-Grade Research Report
-                        *3-5 page comprehensive analysis including executive summary,
-                        financial performance, risk assessment, and forward-looking indicators*
-                        """
-                    )
-
-                    comprehensive_output = gr.Markdown(
-                        label="Research Report",
-                        elem_classes=["report-content"]
-                    )
-
-                    with gr.Row():
-                        download_comp_md = gr.DownloadButton(
-                            label="📥 Download as Markdown",
-                            visible=False
+                        existing_dropdown = gr.Dropdown(
+                            label="Select Previous Analysis",
+                            choices=[],
+                            interactive=True,
+                            scale=3
                         )
-                        # download_comp_pdf = gr.Button(
-                        #     "📥 Download as PDF",
-                        #     size="sm"
-                        # )
 
-                # ==================== TAB 3: Financial Statements ====================
-                with gr.Tab("💰 Financial Statements", id=2):
-                    gr.Markdown(
-                        """
-                        ## Complete Financial Statements from SEC EDGAR
-                        *Balance Sheet, Income Statement, and Cash Flow Statement
-                        with comparative periods and human-readable labels*
-                        """
-                    )
+                        load_btn = gr.Button("📂 Load Analysis", variant="primary", size="lg")
 
+                    # ==================== SECTION 2: Run New Analysis ====================
+                    with gr.Group(elem_classes=["home-section"]):
+                        gr.HTML("""
+                            <div class="section-header">
+                                <div class="section-badge">2</div>
+                                <h2 class="section-title">Run New Analysis</h2>
+                            </div>
+                        """)
+                        gr.Markdown("*Generate a comprehensive financial research report for any public company*")
+
+                        query_input = gr.Textbox(
+                            label="Company Ticker or Name",
+                            placeholder="E.g., 'AAPL' or 'Apple' or 'Analyze Tesla's Q3 2025 performance'",
+                            lines=2,
+                            elem_classes=["query-box"]
+                        )
+
+                        generate_btn = gr.Button(
+                            "🔍 Generate Analysis",
+                            variant="primary",
+                            size="lg"
+                        )
+
+                        status_output = gr.Markdown(
+                            label="Status",
+                            elem_classes=["status-box"]
+                        )
+
+                    # ==================== SECTION 3: Query Knowledge Base ====================
+                    with gr.Group(elem_classes=["home-section"]):
+                        gr.HTML("""
+                            <div class="section-header">
+                                <div class="section-badge">3</div>
+                                <h2 class="section-title">Query Knowledge Base</h2>
+                            </div>
+                        """)
+                        gr.Markdown("*Ask questions about any company already analyzed and get AI-powered answers with citations*")
+
+                        kb_query_input = gr.Textbox(
+                            label="Search Query",
+                            placeholder="E.g., 'What are Apple's main revenue sources?'",
+                            lines=2
+                        )
+
+                        gr.Markdown("#### Example Questions")
+                        gr.Markdown("*Click an example to auto-fill the search*")
+
+                        with gr.Row():
+                            with gr.Column(scale=1):
+                                for example in KB_QUERY_EXAMPLES[:3]:
+                                    btn = gr.Button(
+                                        example,
+                                        size="sm",
+                                        elem_classes=["template-button"]
+                                    )
+                                    btn.click(
+                                        fn=lambda ex=example: ex,
+                                        outputs=kb_query_input
+                                    )
+
+                            with gr.Column(scale=1):
+                                for example in KB_QUERY_EXAMPLES[3:]:
+                                    btn = gr.Button(
+                                        example,
+                                        size="sm",
+                                        elem_classes=["template-button"]
+                                    )
+                                    btn.click(
+                                        fn=lambda ex=example: ex,
+                                        outputs=kb_query_input
+                                    )
+
+                        kb_search_btn = gr.Button("🔍 Search Knowledge Base", variant="primary", size="lg")
+
+                        kb_results_output = gr.Markdown(
+                            label="Search Results",
+                            value="*Enter a query and click Search to find relevant information*"
+                        )
+
+                # ==================== REPORTS TAB (PARENT) ====================
+                with gr.Tab("📊 Reports"):
                     with gr.Tabs():
-                        with gr.Tab("All Statements"):
-                            statements_output = gr.Markdown(
+
+                        # ==================== TAB 2: Comprehensive Report ====================
+                        with gr.Tab("📄 Comprehensive Report", id=1):
+                            gr.Markdown(
+                                """
+                                ## Full Investment-Grade Research Report
+                                *3-5 page comprehensive analysis including executive summary,
+                                financial performance, risk assessment, and forward-looking indicators*
+                                """
+                            )
+
+                            comprehensive_output = gr.Markdown(
+                                label="Research Report",
                                 elem_classes=["report-content"]
                             )
 
-                        # Future: Individual statement tabs with interactive tables
-                        # with gr.Tab("Balance Sheet"):
-                        #     balance_sheet_table = gr.DataFrame()
-                        # with gr.Tab("Income Statement"):
-                        #     income_statement_table = gr.DataFrame()
-                        # with gr.Tab("Cash Flow"):
-                        #     cash_flow_table = gr.DataFrame()
+                            with gr.Row():
+                                download_comp_md = gr.DownloadButton(
+                                    label="📥 Download as Markdown",
+                                    visible=False
+                                )
+                                # download_comp_md = gr.Button(
+                                #     "📥 Download as PDF",
+                                #     size="sm"
+                                # )
 
-                    with gr.Row():
-                        download_stmt_md = gr.DownloadButton(
-                            label="📥 Download Statements",
-                            visible=False
-                        )
+                        # ==================== TAB 3: Financial Statements ====================
+                        with gr.Tab("💰 Financial Statements", id=2):
+                            gr.Markdown(
+                                """
+                                ## Complete Financial Statements from SEC EDGAR
+                                *Balance Sheet, Income Statement, and Cash Flow Statement
+                                with comparative periods and human-readable labels*
+                                """
+                            )
 
-                # ==================== TAB 4: Financial Metrics ====================
-                with gr.Tab("📈 Financial Metrics & Ratios", id=3):
-                    gr.Markdown(
-                        """
-                        ## Financial Metrics Analysis with YoY Comparison
-                        *Liquidity, Solvency, Profitability, and Efficiency ratios
-                        with comparative period analysis and trend indicators*
-                        """
-                    )
+                            with gr.Tabs():
+                                with gr.Tab("All Statements"):
+                                    statements_output = gr.Markdown(
+                                        elem_classes=["report-content"]
+                                    )
 
-                    metrics_output = gr.Markdown(
-                        elem_classes=["report-content"]
-                    )
+                                # Future: Individual statement tabs with interactive tables
+                                # with gr.Tab("Balance Sheet"):
+                                #     balance_sheet_table = gr.DataFrame()
+                                # with gr.Tab("Income Statement"):
+                                #     income_statement_table = gr.DataFrame()
+                                # with gr.Tab("Cash Flow"):
+                                #     cash_flow_table = gr.DataFrame()
 
-                    with gr.Row():
-                        download_metrics_md = gr.DownloadButton(
-                            label="📥 Download Metrics",
-                            visible=False
-                        )
+                            with gr.Row():
+                                download_stmt_md = gr.DownloadButton(
+                                    label="📥 Download Statements",
+                                    visible=False
+                                )
 
-                # ==================== TAB 5: Financial Analysis ====================
-                with gr.Tab("💡 Financial Analysis", id=4):
-                    gr.Markdown(
-                        """
-                        ## Specialist Financial Analysis (800-1200 words)
-                        *In-depth analysis of financial performance, trends, and key metrics
-                        by the Financial Analyst agent with direct access to SEC EDGAR data*
-                        """
-                    )
+                        # ==================== TAB 4: Financial Metrics ====================
+                        with gr.Tab("📈 Financial Metrics & Ratios", id=3):
+                            gr.Markdown(
+                                """
+                                ## Financial Metrics Analysis with YoY Comparison
+                                *Liquidity, Solvency, Profitability, and Efficiency ratios
+                                with comparative period analysis and trend indicators*
+                                """
+                            )
 
-                    financial_analysis_output = gr.Markdown(
-                        elem_classes=["report-content"]
-                    )
+                            metrics_output = gr.Markdown(
+                                elem_classes=["report-content"]
+                            )
 
-                    # Interactive Charts Section
-                    gr.Markdown("### 📊 Interactive Charts")
+                            with gr.Row():
+                                download_metrics_md = gr.DownloadButton(
+                                    label="📥 Download Metrics",
+                                    visible=False
+                                )
 
-                    with gr.Row():
-                        margin_chart = gr.Plot(
-                            label="Profitability Margins",
-                            visible=True
-                        )
-                        metrics_chart = gr.Plot(
-                            label="Key Financial Metrics",
-                            visible=True
-                        )
+                        # ==================== TAB 5: Financial Analysis ====================
+                        with gr.Tab("💡 Financial Analysis", id=4):
+                            gr.Markdown(
+                                """
+                                ## Specialist Financial Analysis (800-1200 words)
+                                *In-depth analysis of financial performance, trends, and key metrics
+                                by the Financial Analyst agent with direct access to SEC EDGAR data*
+                                """
+                            )
 
-                    with gr.Row():
-                        segment_chart = gr.Plot(
-                            label="Revenue by Segment",
-                            visible=True
-                        )
+                            financial_analysis_output = gr.Markdown(
+                                elem_classes=["report-content"]
+                            )
 
-                    with gr.Row():
-                        download_fin_analysis_md = gr.DownloadButton(
-                            label="📥 Download Financial Analysis",
-                            visible=False
-                        )
+                            # Interactive Charts Section
+                            gr.Markdown("### 📊 Interactive Charts")
 
-                # ==================== TAB 6: Risk Analysis ====================
-                with gr.Tab("⚠️ Risk Analysis", id=5):
-                    gr.Markdown(
-                        """
-                        ## Specialist Risk Assessment (800-1200 words)
-                        *Comprehensive risk analysis prioritizing 10-K Item 1A Risk Factors
-                        by the Risk Analyst agent with access to annual and quarterly SEC filings*
-                        """
-                    )
+                            with gr.Row():
+                                margin_chart = gr.Plot(
+                                    label="Profitability Margins",
+                                    visible=True
+                                )
+                                metrics_chart = gr.Plot(
+                                    label="Key Financial Metrics",
+                                    visible=True
+                                )
 
-                    risk_analysis_output = gr.Markdown(
-                        elem_classes=["report-content"]
-                    )
+                            with gr.Row():
+                                segment_chart = gr.Plot(
+                                    label="Revenue by Segment",
+                                    visible=True
+                                )
 
-                    with gr.Row():
-                        risk_chart = gr.Plot(
-                            label="Risk Category Breakdown (Keyword-based Analysis)",
-                            visible=True
-                        )
+                            with gr.Row():
+                                download_fin_analysis_md = gr.DownloadButton(
+                                    label="📥 Download Financial Analysis",
+                                    visible=False
+                                )
 
-                    with gr.Row():
-                        download_risk_analysis_md = gr.DownloadButton(
-                            label="📥 Download Risk Analysis",
-                            visible=False
-                        )
+                        # ==================== TAB 6: Risk Analysis ====================
+                        with gr.Tab("⚠️ Risk Analysis", id=5):
+                            gr.Markdown(
+                                """
+                                ## Specialist Risk Assessment (800-1200 words)
+                                *Comprehensive risk analysis prioritizing 10-K Item 1A Risk Factors
+                                by the Risk Analyst agent with access to annual and quarterly SEC filings*
+                                """
+                            )
 
-                # ==================== TAB 7: Data Verification ====================
-                with gr.Tab("✅ Data Verification", id=6):
-                    gr.Markdown(
-                        """
-                        ## Data Quality & Validation Report
-                        *Verification of data completeness, balance sheet equations,
-                        comparative periods, and critical line items*
-                        """
-                    )
+                            risk_analysis_output = gr.Markdown(
+                                elem_classes=["report-content"]
+                            )
 
-                    verification_output = gr.Markdown(
-                        elem_classes=["report-content"]
-                    )
+                            with gr.Row():
+                                risk_chart = gr.Plot(
+                                    label="Risk Category Breakdown (Keyword-based Analysis)",
+                                    visible=True
+                                )
 
-                    gr.Markdown(
-                        """
-                        ---
+                            with gr.Row():
+                                download_risk_analysis_md = gr.DownloadButton(
+                                    label="📥 Download Risk Analysis",
+                                    visible=False
+                                )
 
-                        **Data Source:** All financial data is extracted directly from official
-                        SEC EDGAR filings using XBRL precision. Values are exact to the penny
-                        as reported in SEC filings.
+                        # ==================== TAB 7: Data Verification ====================
+                        with gr.Tab("✅ Data Verification", id=6):
+                            gr.Markdown(
+                                """
+                                ## Data Quality & Validation Report
+                                *Verification of data completeness, balance sheet equations,
+                                comparative periods, and critical line items*
+                                """
+                            )
 
-                        **Methodology:** Deterministic extraction using edgartools library,
-                        validated against balance sheet equations and completeness checks.
-                        """
-                    )
+                            verification_output = gr.Markdown(
+                                elem_classes=["report-content"]
+                            )
+
+                            gr.Markdown(
+                                """
+                                ---
+
+                                **Data Source:** All financial data is extracted directly from official
+                                SEC EDGAR filings using XBRL precision. Values are exact to the penny
+                                as reported in SEC filings.
+
+                                **Methodology:** Deterministic extraction using edgartools library,
+                                validated against balance sheet equations and completeness checks.
+                                """
+                            )
+
+                        # ==================== TAB 8: Search Results (Dev) ====================
+                        with gr.Tab("🔍 Search Results", id=7):
+                            gr.Markdown(
+                                """
+                                ## Multi-Source Search Results
+                                *Combined search results from web and various data sources
+                                used in generating the analysis*
+
+                                **Note:** This tab is primarily for development and debugging purposes.
+                                """
+                            )
+
+                            search_results_output = gr.Markdown(
+                                elem_classes=["report-content"]
+                            )
+
+                        # ==================== TAB 9: EDGAR Filings (Dev) ====================
+                        with gr.Tab("📄 EDGAR Filings", id=8):
+                            gr.Markdown(
+                                """
+                                ## SEC EDGAR Filings Data
+                                *Raw EDGAR filings information and metadata extracted
+                                from SEC database*
+
+                                **Note:** This tab is primarily for development and debugging purposes.
+                                """
+                            )
+
+                            edgar_filings_output = gr.Markdown(
+                                elem_classes=["report-content"]
+                            )
 
             # Footer
             gr.Markdown(
@@ -1390,99 +1601,10 @@ The following companies are not yet in the knowledge base:
                 """
             )
 
-            # ==================== EVENT HANDLERS ====================
-
-            # Connect dashboard action buttons
-            def handle_ask_questions_click(selected_ticker):
-                """Switch to Ask Questions tab."""
-                if not selected_ticker:
-                    return {tabs: gr.update(selected=0)}
-                return {tabs: gr.update(selected=0)}
-
-            def handle_refresh_analysis_click(selected_ticker):
-                """Switch to Run Analysis tab and populate query."""
-                if not selected_ticker:
-                    return {
-                        tabs: gr.update(selected=1),
-                        analysis_query_input: ""
-                    }
-                # Auto-populate query with ticker
-                query = f"Analyze {selected_ticker}'s latest quarterly financial performance"
-                return {
-                    tabs: gr.update(selected=1),
-                    analysis_query_input: query
-                }
-
-            def handle_view_reports_click(selected_ticker):
-                """Switch to Comprehensive Report tab."""
-                return {tabs: gr.update(selected=2)}
-
-            ask_question_btn.click(
-                fn=handle_ask_questions_click,
-                inputs=[company_selector],
-                outputs=[tabs]
-            )
-
-            refresh_analysis_btn.click(
-                fn=handle_refresh_analysis_click,
-                inputs=[company_selector],
-                outputs=[tabs, analysis_query_input]
-            )
-
-            view_reports_btn.click(
-                fn=handle_view_reports_click,
-                inputs=[company_selector],
-                outputs=[tabs]
-            )
-
-            # Connect Ask Question button
-            def handle_ask_question(question, selected_ticker):
-                """Handle asking a question."""
-                if not question or not question.strip():
-                    return "⚠️ Please enter a question"
-
-                # Use selected ticker as filter
-                ticker_filter = selected_ticker if selected_ticker else ""
-
-                # Call the existing query_knowledge_base function
-                result = ""
-                for chunk in self.query_knowledge_base(question, ticker_filter, "", 5):
-                    result = chunk  # Get final result
-
-                return result
-
-            ask_btn.click(
-                fn=handle_ask_question,
-                inputs=[query_input, company_selector],
-                outputs=[kb_results_output]
-            )
-
-            clear_btn.click(
-                fn=lambda: ("", "*Select a company above and enter your question*"),
-                outputs=[query_input, kb_results_output]
-            )
-
-            # Connect generate button to analysis function
-            async def handle_generate_analysis(query, selected_ticker):
-                """Handle running comprehensive analysis."""
-                # Auto-detect from selected company if query is empty
-                if not query or not query.strip():
-                    if selected_ticker:
-                        query = f"Analyze {selected_ticker}'s latest quarterly financial performance"
-                    else:
-                        yield (
-                            "⚠️ Please select a company or enter an analysis query",
-                            "", "", "", "", "", "", None, None, None
-                        )
-                        return
-
-                # Call the existing generate_analysis function
-                async for result in self.generate_analysis(query):
-                    yield result
-
+            # Connect the generate button to the analysis function
             generate_btn.click(
-                fn=handle_generate_analysis,
-                inputs=[analysis_query_input, company_selector],
+                fn=self.generate_analysis,
+                inputs=[query_input],
                 outputs=[
                     status_output,
                     comprehensive_output,
@@ -1491,10 +1613,63 @@ The following companies are not yet in the knowledge base:
                     financial_analysis_output,
                     risk_analysis_output,
                     verification_output,
+                    search_results_output,
+                    edgar_filings_output,
                     margin_chart,
                     metrics_chart,
                     risk_chart
                 ]
+            )
+
+
+            # Load button for existing analyses
+            load_btn.click(
+                fn=self.load_existing_analysis,
+                inputs=[existing_dropdown],
+                outputs=[
+                    status_output,
+                    comprehensive_output,
+                    statements_output,
+                    metrics_output,
+                    financial_analysis_output,
+                    risk_analysis_output,
+                    verification_output,
+                    search_results_output,
+                    edgar_filings_output,
+                    margin_chart,
+                    metrics_chart,
+                    risk_chart
+                ]
+            )
+
+            # Knowledge base search button - using defaults for removed filters
+            # Note: query_knowledge_base is a generator, so we need to consume it
+            def kb_search_handler(query):
+                """Wrapper to consume the generator and return final result."""
+                result_parts = []
+                for chunk in self.query_knowledge_base(query, "", "", 10):
+                    result_parts.append(chunk)
+                # Return the last (final) result which contains the complete output
+                return result_parts[-1] if result_parts else "No results"
+
+            kb_search_btn.click(
+                fn=kb_search_handler,
+                inputs=[kb_query_input],
+                outputs=[kb_results_output]
+            )
+
+
+            # Populate dropdown on app load
+            def load_dropdown_choices():
+                analyses = self.get_existing_analyses()
+                choices = [a['label'] for a in analyses]
+                # Store mapping for later retrieval
+                self.analysis_map = {a['label']: a['value'] for a in analyses}
+                return gr.update(choices=choices, value=choices[0] if choices else None)
+
+            app.load(
+                fn=load_dropdown_choices,
+                outputs=[existing_dropdown]
             )
 
         return app

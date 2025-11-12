@@ -269,10 +269,8 @@ def get_kb_summary_banner(chroma_manager) -> str:
         chroma_manager: FinancialRAGManager instance
 
     Returns:
-        Markdown-formatted banner showing KB status
+        Markdown-formatted banner showing KB status summary only
     """
-    from financial_research_agent.rag.utils import format_company_status
-
     try:
         companies = chroma_manager.get_companies_with_status()
 
@@ -292,20 +290,53 @@ def get_kb_summary_banner(chroma_manager) -> str:
         banner = f"""### 💾 Knowledge Base Status
 
 **{len(companies)} Companies Indexed** | 🟢 Fresh: {fresh_count} | 🟡 Aging: {aging_count} | 🔴 Stale: {stale_count}
-
-**Recently Updated:**
 """
-
-        # Show top 5 most recent
-        for company in companies[:5]:
-            banner += f"\n- {format_company_status(company)}"
-
-        if len(companies) > 5:
-            banner += f"\n\n*...and {len(companies) - 5} more companies*"
-
-        banner += "\n\n*💡 Tip: Click on any company ticker in the dropdown to view full reports*"
 
         return banner
 
     except Exception as e:
         return f"### 💾 Knowledge Base Status\n\n*Unable to load status: {str(e)}*"
+
+
+def get_kb_detailed_status(chroma_manager) -> str:
+    """
+    Generate detailed KB status with company list for display when user clicks "View Details".
+
+    Args:
+        chroma_manager: FinancialRAGManager instance
+
+    Returns:
+        Markdown-formatted detailed status with company list
+    """
+    from financial_research_agent.rag.utils import format_company_status
+
+    try:
+        companies = chroma_manager.get_companies_with_status()
+
+        if not companies:
+            return "*No companies in knowledge base*"
+
+        # Count by status
+        fresh_count = sum(1 for c in companies if c["status"] == "fresh")
+        aging_count = sum(1 for c in companies if c["status"] == "aging")
+        stale_count = sum(1 for c in companies if c["status"] == "stale")
+
+        details = f"""### 💾 Knowledge Base - Detailed Status
+
+**{len(companies)} Companies Indexed** | 🟢 Fresh: {fresh_count} | 🟡 Aging: {aging_count} | 🔴 Stale: {stale_count}
+
+---
+
+**All Companies:**
+"""
+
+        # Show all companies
+        for company in companies:
+            details += f"\n- {format_company_status(company)}"
+
+        details += "\n\n*💡 Tip: Companies marked as 🔴 Stale should be re-analyzed for most accurate results*"
+
+        return details
+
+    except Exception as e:
+        return f"*Unable to load detailed status: {str(e)}*"

@@ -1,11 +1,11 @@
 from agents import Agent
 from agents.model_settings import ModelSettings
 from financial_research_agent.config import AgentConfig
-from financial_research_agent.tools import brave_search
+from financial_research_agent.tools.multi_search import multi_search
 
 # Given a search term, use web search to pull back a brief summary.
 # Summaries should be concise but capture the main financial points.
-# Now using Brave Search API for 10x cost savings and better performance.
+# Now using multi-provider search with Brave (primary) and Serper (fallback).
 INSTRUCTIONS = (
     "You are a research assistant specializing in financial topics. "
     "Given a search term, use web search to retrieve up‑to‑date context and "
@@ -18,7 +18,7 @@ agent_kwargs = {
     "name": "FinancialSearchAgent",
     "model": AgentConfig.SEARCH_MODEL,
     "instructions": INSTRUCTIONS,
-    "tools": [brave_search],  # 10x cheaper than OpenAI WebSearchTool
+    "tools": [multi_search],  # Multi-provider search with automatic fallback
 }
 
 # Only add model_settings if it's not None (for reasoning models only)

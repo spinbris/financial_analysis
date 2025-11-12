@@ -436,6 +436,18 @@ financial_research_agent/output/YYYYMMDD_HHMMSS/
 - **Automatic discovery**: System scans output directory and presents up to 50 most recent completed analyses
 - **Ticker extraction**: Smart extraction of ticker symbols from queries for easy identification
 
+## Future Enhancements
+
+### Performance Optimizations
+- **Smart SEC Filing Detection**: Integrate `SECFilingChecker` utility into `main_enhanced.py` to skip re-downloading filings when no new 10-K/10-Q reports are available. The utility already exists in `financial_research_agent/utils/sec_filing_checker.py` and compares indexed analysis dates against latest EDGAR filings, potentially saving 2-3 minutes per analysis when filings are unchanged.
+
+### Planned Features
+- **React Frontend Migration**: Complete migration from Gradio to React/TypeScript frontend with improved markdown rendering and responsive design
+- **User-Provided API Keys**: Session-only storage for user API keys in React UI (no server-side persistence)
+- **Web Search Toggle**: Optional web search disable for faster, SEC-only analyses
+- **Real-time Progress Updates**: WebSocket-based live updates during analysis generation
+- **Enhanced Comparison Views**: Side-by-side company comparisons with visual diff highlighting
+
 ## Customization
 
 All prompts and sub-agents can be customized for your specific needs. See the documentation for details on:
@@ -458,3 +470,38 @@ While open-source models from [Hugging Face](https://huggingface.co/open-llm-lea
 - Quality requirements for financial analysis
 
 Future versions could support open-source models with agent framework migration (LangChain, AutoGen, etc.).
+
+---
+
+## Issues & Enhancements
+
+### Active Enhancements
+
+**Enhancement #1: Company Metadata File for Robust Name Lookup**
+- **Status**: Proposed
+- **Priority**: Medium
+- **Effort**: 1-2 hours
+
+Create a `company_metadata.json` file during analysis generation to store ticker and official company name from SEC EDGAR. This would eliminate the need for regex parsing of comprehensive reports to extract company names.
+
+Currently, the web app extracts company names from comprehensive reports using regex patterns. While this works for existing reports, it's fragile and depends on consistent Executive Summary formatting.
+
+**Proposed Solution**: When the EDGAR agent generates an analysis, create a metadata file at the beginning:
+```json
+{
+  "ticker": "AAPL",
+  "company_name": "Apple Inc.",
+  "cik": "0000320193",
+  "analysis_date": "2025-11-11",
+  "fiscal_period": "Q3 2024",
+  "generated_at": "2025-11-11T14:35:22Z"
+}
+```
+
+**Implementation Notes**:
+- File location: `financial_research_agent/output/{timestamp}/00_metadata.json`
+- Generate during planner agent initialization (has access to SEC EDGAR data)
+- Update [web_app.py](financial_research_agent/web_app.py) dropdown logic to read from metadata file first, fall back to regex
+- Use edgartools `Company` class to get official name
+
+See [ISSUES_ENHANCEMENTS.md](ISSUES_ENHANCEMENTS.md) for complete list and details.

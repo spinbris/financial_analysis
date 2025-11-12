@@ -138,23 +138,34 @@ def format_rag_results(results: Dict[str, Any], query: str) -> QueryResponse:
     """Format RAG results into QueryResponse"""
     sources = []
     answer_parts = []
-    
-    for result in results.get("results", [])[:5]:
+
+    # ChromaDB returns results in format: {documents: [[]], metadatas: [[]], distances: [[]]}
+    documents = results.get("documents", [[]])[0] if results.get("documents") else []
+    metadatas = results.get("metadatas", [[]])[0] if results.get("metadatas") else []
+    distances = results.get("distances", [[]])[0] if results.get("distances") else []
+
+    # Combine documents, metadatas, distances
+    for i in range(min(len(documents), 5)):
+        doc = documents[i] if i < len(documents) else ""
+        metadata = metadatas[i] if i < len(metadatas) else {}
+        distance = distances[i] if i < len(distances) else 1.0
+
         sources.append(Source(
-            ticker=result.get("ticker", "UNKNOWN"),
-            type=result.get("analysis_type", "unknown"),
-            content=result.get("content", "")[:300] + "...",
-            distance=result.get("distance", 1.0),
-            timestamp=result.get("timestamp")
+            ticker=metadata.get("ticker", "UNKNOWN"),
+            type=metadata.get("analysis_type", "unknown"),
+            content=doc[:300] + "..." if len(doc) > 300 else doc,
+            distance=distance,
+            timestamp=metadata.get("period")
         ))
-        answer_parts.append(result.get("content", ""))
-    
-    # Synthesize answer
+        answer_parts.append(doc)
+
+    # Synthesize answer - show only the most relevant chunk
     if answer_parts:
-        answer = "\n\n".join(answer_parts[:3])
+        # Return just the top result to avoid wall of text
+        answer = answer_parts[0]
     else:
         answer = "No relevant information found. Try adding companies first."
-    
+
     # Determine confidence
     if sources and sources[0].distance < 0.3:
         confidence = "high"
@@ -162,13 +173,13 @@ def format_rag_results(results: Dict[str, Any], query: str) -> QueryResponse:
         confidence = "medium"
     else:
         confidence = "low"
-    
+
     suggestions = [
         "Can you provide more details about the financial metrics?",
         "What are the key risk factors?",
         "How does this compare to industry peers?"
     ]
-    
+
     return QueryResponse(
         query=query,
         answer=answer,
@@ -267,7 +278,9 @@ async def query_knowledge_base(request: QueryRequest, api_key: str = Depends(ver
             n_results=request.n_results
         )
         
-        if not results.get("results"):
+        # Check if ChromaDB returned any documents
+        documents = results.get("documents", [[]])[0] if results.get("documents") else []
+        if not documents:
             return QueryResponse(
                 query=request.query,
                 answer="No relevant information found. Try adding companies first.",
@@ -334,7 +347,7 @@ async def run_analysis(request: AnalysisRequest, api_key: str = Depends(verify_a
 async def get_report(ticker: str, api_key: str = Depends(verify_api_key)):
     """Get full financial report for a company (requires API key)"""
     from financial_research_agent.rag.chroma_manager import FinancialRAGManager
-    
+
     try:
         ticker = ticker.upper()
         rag = FinancialRAGManager(persist_directory="/chroma-data")
@@ -343,35 +356,58 @@ async def get_report(ticker: str, api_key: str = Depends(verify_api_key)):
             ticker=ticker,
             n_results=50
         )
-        
-        if not results.get("results"):
+
+        # ChromaDB returns: {documents: [[]], metadatas: [[]], distances: [[]]}
+        documents = results.get("documents", [[]])[0] if results.get("documents") else []
+        metadatas = results.get("metadatas", [[]])[0] if results.get("metadatas") else []
+        distances = results.get("distances", [[]])[0] if results.get("distances") else []
+
+        if not documents:
             raise HTTPException(
                 status_code=404,
                 detail=f"No analysis found for {ticker}"
             )
-        
+
         # Organize by type
         report = {
             "ticker": ticker,
             "company_name": get_ticker_full_name(ticker),
-            "timestamp": results["results"][0].get("timestamp"),
+            "timestamp": metadatas[0].get("period") if metadatas else None,
             "analyses": {
                 "financial_statements": [],
                 "financial_metrics": [],
                 "risk_analysis": [],
                 "comprehensive_report": [],
+                "financial_analysis": [],  # Also include financial_analysis
             }
         }
-        
-        for result in results["results"]:
-            analysis_type = result.get("analysis_type", "other")
-            if analysis_type in report["analyses"]:
-                report["analyses"][analysis_type].append({
-                    "content": result.get("content"),
-                    "timestamp": result.get("timestamp"),
-                    "distance": result.get("distance")
+
+        # Map ChromaDB analysis_type to report keys
+        type_mapping = {
+            "financial_statements": "financial_statements",
+            "financial_metrics": "financial_metrics",
+            "risk": "risk_analysis",  # Map "risk" -> "risk_analysis"
+            "comprehensive": "comprehensive_report",  # Map "comprehensive" -> "comprehensive_report"
+            "financial_analysis": "financial_analysis"
+        }
+
+        # Combine documents with their metadata
+        for i in range(len(documents)):
+            doc = documents[i] if i < len(documents) else ""
+            metadata = metadatas[i] if i < len(metadatas) else {}
+            distance = distances[i] if i < len(distances) else 1.0
+
+            analysis_type = metadata.get("analysis_type", "other")
+            # Map to report key
+            report_key = type_mapping.get(analysis_type)
+
+            if report_key:
+                report["analyses"][report_key].append({
+                    "content": doc,
+                    "timestamp": metadata.get("period"),
+                    "distance": distance
                 })
-        
+
         return report
     except HTTPException:
         raise
@@ -439,6 +475,45 @@ def fix_volume_structure():
             print(f"   DIR: {item}/")
 
 @app.function(image=image, volumes={"/chroma-data": chroma_volume})
+def test_reports_query():
+    """Debug the reports query issue"""
+    from financial_research_agent.rag.chroma_manager import FinancialRAGManager
+
+    print("Testing reports query for AAPL...")
+    rag = FinancialRAGManager(persist_directory="/chroma-data")
+
+    # Try the exact same query the reports endpoint uses
+    results = rag.query(
+        query="AAPL comprehensive",
+        ticker="AAPL",
+        n_results=50
+    )
+
+    print(f"\n📊 Query results structure:")
+    print(f"   Keys: {results.keys()}")
+
+    documents = results.get("documents", [[]])[0] if results.get("documents") else []
+    metadatas = results.get("metadatas", [[]])[0] if results.get("metadatas") else []
+    distances = results.get("distances", [[]])[0] if results.get("distances") else []
+
+    print(f"   Documents found: {len(documents)}")
+    print(f"   Metadatas found: {len(metadatas)}")
+    print(f"   Distances found: {len(distances)}")
+
+    if metadatas:
+        print(f"\n📝 First 5 metadata analysis_types:")
+        for i, metadata in enumerate(metadatas[:5]):
+            print(f"   {i+1}. {metadata.get('analysis_type', 'MISSING')}")
+
+    # Count by analysis_type
+    from collections import Counter
+    types = [m.get('analysis_type', 'MISSING') for m in metadatas]
+    type_counts = Counter(types)
+    print(f"\n📈 Analysis type distribution:")
+    for atype, count in type_counts.items():
+        print(f"   {atype}: {count}")
+
+@app.function(image=image, volumes={"/chroma-data": chroma_volume})
 def test_api():
     """Test the API endpoints"""
     import os
@@ -479,10 +554,64 @@ def test_api():
 
         if companies:
             print(f"   Tickers: {[c['ticker'] for c in companies[:5]]}")
+
+        # Test actual query
+        print("\n🔍 Testing query...")
+        query_results = rag.query(query="What is Apple's revenue?", ticker="AAPL", n_results=2)
+        print(f"✅ Query returned {len(query_results.get('documents', [[]])[0])} documents")
+        if query_results.get('documents', [[]])[0]:
+            print(f"   First result preview: {query_results['documents'][0][0][:100]}...")
+            print(f"   Distance: {query_results['distances'][0][0]}")
     except Exception as e:
         import traceback
         print(f"❌ Error: {e}")
         print(traceback.format_exc())
+
+@app.function(image=image, volumes={"/chroma-data": chroma_volume}, timeout=300)
+def upload_fixed_chromadb_from_tar():
+    """Upload the fixed local ChromaDB to Modal volume using a tar file"""
+    import os
+    import shutil
+    import subprocess
+
+    print("📤 Uploading fixed ChromaDB from local...")
+
+    # Clear existing ChromaDB
+    chroma_path = "/chroma-data"
+    print(f"\n🗑️  Clearing existing ChromaDB at {chroma_path}...")
+    if os.path.exists(chroma_path):
+        for item in os.listdir(chroma_path):
+            item_path = os.path.join(chroma_path, item)
+            try:
+                if os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+                else:
+                    os.remove(item_path)
+            except Exception as e:
+                print(f"Warning: Could not remove {item}: {e}")
+
+    # Note: The tar file should be uploaded using modal.Volume.put_file() from local
+    # This function assumes the tar is already in /tmp/chroma_db.tar.gz
+    tar_path = "/tmp/chroma_db.tar.gz"
+    if not os.path.exists(tar_path):
+        print(f"❌ Tar file not found at {tar_path}")
+        print("   Please upload chroma_db.tar.gz to the volume first")
+        return
+
+    print(f"\n📦 Extracting ChromaDB from tar...")
+    subprocess.run(["tar", "-xzf", tar_path, "-C", chroma_path], check=True)
+
+    # Commit changes
+    print(f"\n💾 Committing changes to volume...")
+    chroma_volume.commit()
+
+    # Verify
+    from financial_research_agent.rag.chroma_manager import FinancialRAGManager
+    rag = FinancialRAGManager(persist_directory=chroma_path)
+    count = rag.collection.count()
+    print(f"\n✅ Upload complete!")
+    print(f"   Documents in ChromaDB: {count}")
+    print(f"   Markdown formatting is now PRESERVED! 🎉")
 
 # ============================================================================
 # Local Development

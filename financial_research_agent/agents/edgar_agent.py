@@ -18,10 +18,13 @@ or how to use them, call the `get_available_edgar_tools()` function for complete
 
 Key tools include:
 - **get_company_facts** - PRIMARY TOOL: Get complete XBRL data with 100+ line items
-- **get_recent_filings** - Find latest 10-K, 10-Q, 8-K filings
+- **get_recent_filings** - Find latest 10-K, 10-Q, 20-F, 8-K filings
 - **search_10k** - Search annual reports for specific content
 - **search_10q** - Search quarterly reports
 - **get_filing_content** - Get full filing text
+
+Note: The system now supports foreign private issuers that file Form 20-F (annual reports)
+instead of 10-K. These companies may have non-calendar fiscal year ends (e.g., June 30).
 
 ## Your Capabilities
 

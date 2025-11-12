@@ -123,11 +123,16 @@ class FinancialRAGManager:
             analysis_type: Type of analysis
 
         Returns:
-            Metadata dictionary
+            Metadata dictionary with source attribution
         """
         metadata = {
             "ticker": ticker.upper(),
-            "analysis_type": analysis_type
+            "analysis_type": analysis_type,
+            # Source attribution (3-tier system)
+            "source_tier": "core",  # core | enhanced | supplemental
+            "data_source": "SEC",   # SEC-10K | SEC-10Q | web-search
+            "validation_status": "validated",  # validated | unverified
+            "enhancement_type": "none"  # none | chart | graph | summary | web-context
         }
 
         # Extract company name
@@ -144,6 +149,11 @@ class FinancialRAGManager:
         filing_match = re.search(r'\*\*Filing:\*\*\s+(.+?)(?:\s*\n|\s*$)', content)
         if filing_match:
             metadata["filing"] = filing_match.group(1).strip()
+            # Determine specific SEC filing type from filing reference
+            if "10-K" in metadata["filing"]:
+                metadata["data_source"] = "SEC-10K"
+            elif "10-Q" in metadata["filing"]:
+                metadata["data_source"] = "SEC-10Q"
 
         return metadata
 
@@ -152,18 +162,18 @@ class FinancialRAGManager:
         content: str,
         analysis_type: str,
         metadata: dict[str, str],
-        chunk_size: int = 300,
-        overlap: int = 50
+        chunk_size: int = 2000,
+        overlap: int = 200
     ) -> list[dict]:
         """
-        Chunk markdown content by sections for better retrieval.
+        Chunk markdown content by sections while preserving formatting.
 
         Args:
             content: Markdown content
             analysis_type: Type of analysis
             metadata: Base metadata
-            chunk_size: Target tokens per chunk
-            overlap: Overlap tokens between chunks
+            chunk_size: Target characters per chunk (increased for better context)
+            overlap: Overlap characters between chunks
 
         Returns:
             List of chunk dictionaries with text, metadata, and IDs
@@ -182,30 +192,61 @@ class FinancialRAGManager:
             section_title = lines[0].strip('#').strip() if lines else "Introduction"
             section_content = lines[1] if len(lines) > 1 else ""
 
-            # Simple word-based chunking (approximate token count)
-            words = section_content.split()
-
-            if not words:
+            if not section_content.strip():
                 continue
 
-            # Create overlapping chunks
-            start = 0
+            # CHARACTER-based chunking to preserve markdown formatting
+            # Split on paragraph boundaries (double newline) when possible
+            paragraphs = section_content.split('\n\n')
+
+            current_chunk = []
+            current_size = 0
             chunk_num = 0
 
-            while start < len(words):
-                end = start + chunk_size
-                chunk_words = words[start:end]
-                chunk_text = ' '.join(chunk_words)
+            for para in paragraphs:
+                para_size = len(para)
 
-                # Create chunk metadata
+                # If adding this paragraph exceeds chunk size and we already have content
+                if current_size + para_size > chunk_size and current_chunk:
+                    # Save current chunk
+                    chunk_text = '\n\n'.join(current_chunk)
+                    chunk_metadata = {
+                        **metadata,
+                        "section": section_title,
+                        "chunk_num": chunk_num,
+                        "section_num": i
+                    }
+                    chunk_id = f"{metadata['ticker']}_{analysis_type}_s{i}_c{chunk_num}_{datetime.now().strftime('%Y%m%d')}"
+
+                    chunks.append({
+                        "text": f"### {section_title}\n\n{chunk_text}",
+                        "metadata": chunk_metadata,
+                        "id": chunk_id
+                    })
+
+                    # Start new chunk with overlap (keep last paragraph for context)
+                    if len(current_chunk) > 1:
+                        current_chunk = [current_chunk[-1], para]
+                        current_size = len(current_chunk[-2]) + para_size + 2  # +2 for \n\n
+                    else:
+                        current_chunk = [para]
+                        current_size = para_size
+
+                    chunk_num += 1
+                else:
+                    # Add paragraph to current chunk
+                    current_chunk.append(para)
+                    current_size += para_size + 2  # +2 for \n\n separator
+
+            # Save final chunk if it has content
+            if current_chunk:
+                chunk_text = '\n\n'.join(current_chunk)
                 chunk_metadata = {
                     **metadata,
                     "section": section_title,
                     "chunk_num": chunk_num,
                     "section_num": i
                 }
-
-                # Create unique ID
                 chunk_id = f"{metadata['ticker']}_{analysis_type}_s{i}_c{chunk_num}_{datetime.now().strftime('%Y%m%d')}"
 
                 chunks.append({
@@ -213,10 +254,6 @@ class FinancialRAGManager:
                     "metadata": chunk_metadata,
                     "id": chunk_id
                 })
-
-                # Move to next chunk with overlap
-                start += (chunk_size - overlap)
-                chunk_num += 1
 
         return chunks
 

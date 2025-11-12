@@ -71,10 +71,26 @@ async def extract_financial_data_deterministic(
     except Exception as e:
         raise ValueError(f"Failed to find company '{company_name}': {e}")
 
-    # Step 2: Get latest 10-Q filing using edgartools
+    # Step 2: Get latest filing using edgartools
+    # Try in order: 10-Q (quarterly), 10-K (annual), 20-F (foreign annual)
     try:
         company = Company(ticker)
-        filing = company.get_filings(form="10-Q").latest(1)
+        filing = None
+        form_type = None
+
+        # Try to get the most recent financial filing in order of preference
+        for form in ["10-Q", "10-K", "20-F"]:
+            try:
+                filings = company.get_filings(form=form)
+                if filings and len(filings) > 0:
+                    filing = filings.latest(1)
+                    form_type = form
+                    break
+            except Exception:
+                continue
+
+        if not filing:
+            raise RuntimeError(f"No 10-Q, 10-K, or 20-F filings found for {ticker}")
 
         # Get financials object from the filing
         financials = filing.obj().financials
@@ -87,6 +103,25 @@ async def extract_financial_data_deterministic(
         bs_df = financials.balance_sheet().to_dataframe()
         is_df = financials.income_statement().to_dataframe()
         cf_df = financials.cashflow_statement().to_dataframe()
+
+        # Filter to keep only the first 2 date columns (most recent filing periods)
+        # This ensures the financial statements match the format of the most recent filing
+        def filter_to_recent_periods(df):
+            """Keep only the first 2 date columns from the DataFrame."""
+            # Get all date columns
+            date_cols = [col for col in df.columns if isinstance(col, str) and '-' in col and col[0].isdigit()]
+
+            # Get non-date columns (like 'label', 'concept', 'abstract', etc.)
+            non_date_cols = [col for col in df.columns if col not in date_cols]
+
+            # Keep only first 2 date columns (current and prior period from latest filing)
+            cols_to_keep = non_date_cols + date_cols[:2]
+
+            return df[cols_to_keep].copy()
+
+        bs_df = filter_to_recent_periods(bs_df)
+        is_df = filter_to_recent_periods(is_df)
+        cf_df = filter_to_recent_periods(cf_df)
 
     except Exception as e:
         raise RuntimeError(f"Failed to extract statements from financials: {e}")
@@ -143,6 +178,24 @@ async def extract_financial_data_deterministic(
         # If we can't get the filing URL, continue without it
         pass
 
+    # Extract fiscal year-end date from the filing
+    # For 20-F filers, this is particularly important as they may have non-calendar year-ends
+    fiscal_year_end = None
+    try:
+        # Try to get fiscal year end from the filing object
+        if hasattr(filing, 'fiscal_year_end'):
+            fiscal_year_end = str(filing.fiscal_year_end)
+        elif hasattr(filing, 'period_of_report'):
+            fiscal_year_end = str(filing.period_of_report)
+        else:
+            # Fall back to the current period end date
+            fiscal_year_end = current_period
+    except Exception:
+        fiscal_year_end = current_period
+
+    # Get company name from Company object
+    company_name_official = company.name if hasattr(company, 'name') else ticker
+
     # Return structure with DataFrames instead of dicts
     return {
         'balance_sheet_df': bs_df,
@@ -156,6 +209,9 @@ async def extract_financial_data_deterministic(
         'filing_url': filing_url,
         'ticker': ticker,
         'cik': cik,
+        'company_name': company_name_official,  # Official name from SEC
+        'fiscal_year_end': fiscal_year_end,
+        'is_foreign_filer': form_type == '20-F',
     }
 
 

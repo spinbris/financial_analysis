@@ -62,18 +62,36 @@ When discussing Free Cash Flow (FCF), you **MUST**:
 "FCF near $4 billion" (vague, no source)
 
 ### Citation Format (MANDATORY)
-**Every financial figure MUST include:**
-1. Exact XBRL concept name (e.g., "RevenueFromContractWithCustomerExcludingAssessedTax")
-2. Filing reference with date and accession number
-3. Period covered
+**Every financial figure MUST include source information, but format depends on context:**
 
-**CORRECT Example:**
-"Revenue of $24.68B (RevenueFromContractWithCustomerExcludingAssessedTax, per 10-Q filed
-2025-10-23, Accession: 0001628280-25-045968, nine months ended 2025-09-30)"
+1. **In narrative text**: Include inline citations with XBRL concept and filing reference
+   - Example: "Revenue of $24.68B (RevenueFromContractWithCustomerExcludingAssessedTax, per 10-Q filed 2025-10-23, Accession: 0001628280-25-045968, nine months ended 2025-09-30)"
 
-**INCORRECT Example:**
-"Revenue was around $25 billion" (no source, rounded)
-"Q3 revenue increased" (no actual figures or source)
+2. **In comparison tables**: Use CLEAN numeric values only, with sources in footnotes
+   - **CORRECT Table Example:**
+   ```markdown
+   | Metric | Q3 2025 | Q3 2024 | YoY Change | YoY % |
+   |--------|---------|---------|------------|-------|
+   | Revenue | $177.4B | $169.3B | +$8.1B | +4.8% |
+   | Operating Income | $6.7B | $5.4B | +$1.3B | +24.1% |
+
+   **Sources:**
+   - Revenue: RevenueFromContractWithCustomerExcludingAssessedTax, 10-Q filed 2025-08-29, Accession: 0000104169-25-000137
+   - Operating Income: OperatingIncomeLoss, same filing
+   ```
+
+   - **INCORRECT Table Example:**
+   ```markdown
+   | Metric | Q3 2025 |
+   |--------|---------|
+   | Revenue | $177,402,000,000 (RevenueFromContractWithCustomerExcludingAssessedTax; 10-Q 2025-08-29; 2025-07-31; Acc: 0000104169-25-000137) |
+   ```
+   ❌ This makes tables unreadable and too wide
+
+**General Rules:**
+- NEVER use vague language like "around $25 billion" or "approximately"
+- NEVER omit sources
+- Use shortened notation in tables ($177.4B) with full precision in footnotes ($177,402,000,000)
 
 ### Segment Reporting (REQUIRED if segments exist)
 If the company reports segments in their 10-Q/10-K:
@@ -159,9 +177,11 @@ High-level overview of financial health and recent performance.
 - Cross-segment trends
 
 ### 9. Year-over-Year Comparison
-- Table or structured comparison of key metrics:
+- **Clean comparison table** with numeric data ONLY (no inline citations):
   - Current period vs. prior year same period
   - Growth rates and changes
+  - Use simple values in table cells (e.g., "$177.4B" not "$177,402,000,000 (Revenues; 10-Q...)")
+- **Separate Sources section** below table with filing references
 
 ### 10. Forward-Looking Assessment
 - Management guidance (from earnings calls or MD&A)
@@ -203,8 +223,34 @@ $117,154,000,000 in Q4 FY2023.
 | iPad | $6.4B | $7.0B | -8.6% |
 | Wearables | $12.8B | $12.5B | +2.4% |
 
+**Sources:**
+- All segment data from 10-Q filed January 31, 2025 (Accession: 0000320193-25-000006), Note 3: Segment Information
+- iPhone: ProductRevenueiPhone
+- Services: ServicesRevenue
+- Mac: ProductRevenueMac
+- iPad: ProductRevenueiPad
+- Wearables: ProductRevenueWearablesHomeandAccessories
+
 The Services segment continues to be the primary growth driver, expanding 16.1% YoY and
 now representing 19.3% of total revenue (up from 17.0% in Q4 2023).
+
+### Year-over-Year Comparison
+
+| Metric | Q4 FY2024 | Q4 FY2023 | Change | % Change |
+|--------|-----------|-----------|--------|----------|
+| Total Revenue | $119.6B | $117.2B | +$2.4B | +2.1% |
+| Gross Profit | $53.0B | $51.3B | +$1.7B | +3.3% |
+| Operating Income | $37.3B | $35.3B | +$2.0B | +5.7% |
+| Net Income | $33.9B | $30.0B | +$3.9B | +13.0% |
+| Gross Margin | 44.3% | 43.8% | +0.5pp | - |
+| Operating Margin | 31.2% | 30.1% | +1.1pp | - |
+
+**Sources:**
+- Total Revenue: RevenueFromContractWithCustomerExcludingAssessedTax, 10-Q filed 2025-01-31
+- Gross Profit: GrossProfit, same filing
+- Operating Income: OperatingIncomeLoss, same filing
+- Net Income: NetIncomeLoss, same filing
+- Margins: calculated from above figures
 """
 
 

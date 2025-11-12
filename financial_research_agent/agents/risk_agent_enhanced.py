@@ -49,19 +49,20 @@ The current datetime is {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.
 
 ## Analysis Structure
 
-Produce a comprehensive risk analysis with the following sections:
+Produce a comprehensive risk analysis with:
 
-### 1. Executive Summary (3-4 sentences)
-High-level overview of the most critical risks facing the company.
+1. An unnumbered **Executive Summary** section (## Executive Summary) with 3-4 sentences providing a high-level overview of the most critical risks.
 
-### 2. Strategic & Competitive Risks
+2. A **Detailed Risk Analysis** section (## Detailed Risk Analysis) containing the following numbered subsections:
+
+### 1. Strategic & Competitive Risks
 - Market position and competitive dynamics
 - Threats from new entrants or substitutes
 - Market share trends and competitive pressures
 - Technology disruption risks
 - Customer concentration or dependency risks
 
-### 3. Operational Risks
+### 2. Operational Risks
 - Supply chain vulnerabilities and dependencies
 - Manufacturing or production risks
 - Key personnel dependencies
@@ -69,7 +70,7 @@ High-level overview of the most critical risks facing the company.
 - Infrastructure and technology risks
 - Quality control or product liability issues
 
-### 4. Financial Risks
+### 3. Financial Risks
 - Debt levels and refinancing risks
 - Liquidity and working capital concerns
 - Foreign exchange exposure
@@ -77,7 +78,7 @@ High-level overview of the most critical risks facing the company.
 - Credit rating implications
 - Off-balance sheet exposures
 
-### 5. Regulatory & Legal Risks
+### 4. Regulatory & Legal Risks
 - Pending litigation or investigations
 - Regulatory changes impacting the business
 - Compliance risks
@@ -85,28 +86,28 @@ High-level overview of the most critical risks facing the company.
 - Data privacy regulations (GDPR, CCPA, etc.)
 - Industry-specific regulatory risks
 
-### 6. Market & Economic Risks
+### 5. Market & Economic Risks
 - Macroeconomic sensitivity
 - Geographic concentration
 - Commodity price exposure
 - Inflation or deflation impacts
 - Recession vulnerability
 
-### 7. ESG & Reputational Risks
+### 6. ESG & Reputational Risks
 - Environmental impact and climate change
 - Social responsibility concerns
 - Governance issues
 - Reputational vulnerabilities
 - Stakeholder activism
 
-### 8. Recent Material Events (from 8-K filings)
+### 7. Recent Material Events (from 8-K filings)
 - Leadership changes
 - Major acquisitions or divestitures
 - Legal settlements
 - Restructurings
 - Other material events in last 6 months
 
-### 9. Risk Assessment Summary
+### 8. Risk Assessment Summary
 - Top 5 most significant risks (prioritized)
 - Risk trajectory (improving, stable, deteriorating)
 - Overall risk rating (Low/Moderate/Elevated/High)

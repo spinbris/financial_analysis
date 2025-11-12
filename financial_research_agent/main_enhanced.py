@@ -13,6 +13,7 @@ Or:
     python financial_research_agent/main_enhanced.py
 """
 
+import argparse
 import asyncio
 import os
 import sys
@@ -60,6 +61,30 @@ from .manager_enhanced import EnhancedFinancialResearchManager
 
 async def main() -> None:
     """Main entry point for enhanced financial research agent."""
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(
+        description="Enhanced Financial Research Agent - Comprehensive Investment-Grade Reports"
+    )
+    parser.add_argument(
+        "--ticker",
+        type=str,
+        help="Company ticker symbol (e.g., AAPL, WBKCY, BHP). Used for SEC EDGAR data extraction."
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["full", "quick"],
+        default="full",
+        help="Analysis mode: 'full' for comprehensive report, 'quick' for basic analysis"
+    )
+    parser.add_argument(
+        "--query",
+        type=str,
+        help="Research query (optional - can also be provided via stdin)"
+    )
+
+    args = parser.parse_args()
+
     print("\n" + "=" * 70)
     print("  ENHANCED FINANCIAL RESEARCH AGENT")
     print("  Comprehensive 3-5 Page Investment-Grade Reports")
@@ -80,12 +105,25 @@ async def main() -> None:
     print("-" * 70)
     print()
 
-    # Get query from user
-    query = input("Enter your financial research query: ").strip()
+    # Get query from command line arg, stdin, or interactive input
+    if args.query:
+        query = args.query.strip()
+    elif not sys.stdin.isatty():
+        # Read from stdin (piped input)
+        query = sys.stdin.read().strip()
+    else:
+        # Interactive mode
+        query = input("Enter your financial research query: ").strip()
 
     if not query:
         print("❌ No query provided. Exiting.")
         return
+
+    # Show ticker if provided
+    if args.ticker:
+        print(f"📊 Ticker: {args.ticker}")
+        print(f"🔍 Mode: {args.mode}")
+        print()
 
     print()
     print("Starting comprehensive research...")
@@ -95,7 +133,8 @@ async def main() -> None:
     mgr = EnhancedFinancialResearchManager()
 
     try:
-        await mgr.run(query)
+        # Pass ticker to manager.run() if provided
+        await mgr.run(query, ticker=args.ticker)
     except KeyboardInterrupt:
         print("\n\n⚠️  Research interrupted by user.")
     except Exception as e:
