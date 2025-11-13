@@ -228,7 +228,7 @@ class FinancialChartGenerator:
                 showlegend=False
             )
 
-            fig.update_yaxis(range=[0, max(margins) * 1.2])
+            fig.update_yaxes(range=[0, max(margins) * 1.2])
 
             return fig
 
@@ -285,9 +285,9 @@ class FinancialChartGenerator:
             equity_value = total_equity[latest_date]
 
             # Calculate liabilities
-            if total_liabilities:
+            if total_liabilities is not None:
                 liabilities_value = total_liabilities[latest_date]
-            elif current_liabilities and noncurrent_liabilities:
+            elif current_liabilities is not None and noncurrent_liabilities is not None:
                 liabilities_value = current_liabilities[latest_date] + noncurrent_liabilities[latest_date]
             else:
                 liabilities_value = assets_value - equity_value

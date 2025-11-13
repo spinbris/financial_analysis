@@ -544,7 +544,8 @@ class WebApp:
                     has_updates = False
 
                     for key, content in new_reports.items():
-                        if (not content.startswith('*Report not generated:') and
+                        if (content is not None and
+                            not content.startswith('*Report not generated:') and
                             key not in loaded_reports):
                             reports[key] = content
                             loaded_reports.add(key)
