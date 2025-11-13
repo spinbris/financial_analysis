@@ -24,8 +24,10 @@ def extract_tickers_from_query(query: str) -> list[str]:
     Returns:
         List of uppercase ticker symbols (deduplicated)
     """
-    # Explicit ticker patterns (e.g., "AAPL", "BRK.B")
-    explicit_tickers = re.findall(r'\b([A-Z]{1,5}(?:\.[A-Z])?)\b', query)
+    # Explicit ticker patterns (e.g., "AAPL", "BRK.B", "aapl", "jpm")
+    # Match case-insensitively and convert to uppercase
+    explicit_tickers = re.findall(r'\b([A-Za-z]{1,5}(?:\.[A-Za-z])?)\b', query)
+    explicit_tickers = [t.upper() for t in explicit_tickers]
 
     # Company name to ticker mapping
     company_map = {
@@ -51,6 +53,7 @@ def extract_tickers_from_query(query: str) -> list[str]:
         "wells fargo": "WFC",
         "goldman sachs": "GS",
         "morgan stanley": "MS",
+        "citigroup": "C",
         "visa": "V",
         "mastercard": "MA",
         "paypal": "PYPL",

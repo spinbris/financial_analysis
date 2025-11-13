@@ -8,6 +8,8 @@ from financial_research_agent.config import AgentConfig
 from agents.agent_output import AgentOutputSchema
 from financial_research_agent.tools.edgartools_wrapper import EdgarToolsWrapper
 from financial_research_agent.tools.financial_ratios_calculator import FinancialRatiosCalculator
+from financial_research_agent.tools.banking_ratios_calculator import BankingRatiosCalculator
+from financial_research_agent.utils.sector_detection import detect_industry_sector, should_analyze_banking_ratios
 
 # Financial Metrics agent specializes in extracting financial statements
 # and calculating comprehensive financial ratios for liquidity, solvency,
@@ -30,6 +32,10 @@ def extract_financial_metrics(ticker: str) -> Dict:
           - leverage: debt-to-assets, debt-to-equity, equity ratio
           - efficiency: asset turnover, equity turnover
           - cash_flow: OCF ratios, free cash flow
+        - banking_ratios: (ONLY for banks) Banking-specific ratios
+          - profitability: NIM, efficiency ratio, ROTCE
+          - credit_quality: NPL ratio, provision coverage, charge-offs
+          - balance_sheet_composition: loan-to-deposit, loan-to-assets
         - growth: Year-over-year growth rates
         - verification: Balance sheet equation validation
         - summary: Human-readable ratio summary
@@ -50,8 +56,19 @@ def extract_financial_metrics(ticker: str) -> Dict:
     verification = edgar.verify_balance_sheet_equation(ticker)
     summary = calculator.get_ratio_summary(ticker)
 
-    return {
+    # Detect sector and calculate banking ratios if applicable
+    sector = detect_industry_sector(ticker)
+    banking_ratios = None
+    banking_summary = None
+
+    if should_analyze_banking_ratios(sector):
+        banking_calculator = BankingRatiosCalculator(identity=identity)
+        banking_ratios = banking_calculator.calculate_all_banking_ratios(ticker)
+        banking_summary = banking_calculator.get_banking_ratio_summary(ticker)
+
+    result = {
         'ticker': ticker,
+        'sector': sector,
         'statements': statements,
         'ratios': ratios,
         'growth': growth,
@@ -60,8 +77,16 @@ def extract_financial_metrics(ticker: str) -> Dict:
         'metadata': {
             'balance_sheet_verified': verification['passed'],
             'verification_error_pct': verification['difference_pct'],
+            'is_banking_sector': should_analyze_banking_ratios(sector),
         }
     }
+
+    # Add banking-specific data if applicable
+    if banking_ratios:
+        result['banking_ratios'] = banking_ratios
+        result['banking_summary'] = banking_summary
+
+    return result
 
 
 FINANCIAL_METRICS_PROMPT = """You are a financial metrics specialist with expertise in
@@ -75,6 +100,7 @@ financial health across liquidity, solvency, profitability, and efficiency dimen
 **extract_financial_metrics(ticker: str)**
 
 This tool provides complete financial analysis including:
+- **sector**: Industry sector classification (banking, investment_banking, insurance, reit, general)
 - **statements**: Full balance sheet, income statement, cash flow (current + prior periods)
 - **ratios**: 18+ pre-calculated ratios across 5 categories:
   - Profitability: gross/operating/net margins, ROA, ROE, asset turnover
@@ -82,11 +108,20 @@ This tool provides complete financial analysis including:
   - Leverage: debt-to-assets, debt-to-equity, equity ratio
   - Efficiency: asset turnover, equity turnover
   - Cash Flow: OCF ratios, OCF margin, free cash flow
+- **banking_ratios**: (ONLY for banking sector) Banking-specific calculated ratios:
+  - Profitability: Net Interest Margin (NIM), Efficiency Ratio, ROTCE
+  - Credit Quality: NPL ratio, Provision Coverage, Net Charge-Off Rate
+  - Balance Sheet: Loan-to-Deposit, Loan-to-Assets, Deposits-to-Assets
 - **growth**: Year-over-year revenue/income/asset growth rates
 - **verification**: Balance sheet equation validation (Assets = Liabilities + Equity)
 - **summary**: Human-readable formatted summary
+- **banking_summary**: (ONLY for banks) Human-readable banking ratios summary
 
 All data is extracted directly from SEC EDGAR filings via edgartools with exact precision.
+
+**Note**: For banks, regulatory capital ratios (CET1, Tier 1, Total Capital, Leverage, LCR, NSFR)
+are NOT included in this tool's output. Those must be extracted separately from MD&A disclosures
+by a specialized LLM agent as they are not available in standard XBRL format.
 
 ## Analysis Process
 

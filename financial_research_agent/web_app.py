@@ -153,14 +153,14 @@ class WebApp:
         import plotly.graph_objects as go
 
         if not selected_label or selected_label not in self.analysis_map:
-            return ("", "", "", "", "", "", "", "", "", None, None, None)
+            return ("", "", "", "", "", "", "", "", "", None, None, None, gr.update(visible=False))
 
         analysis_path = self.analysis_map[selected_label]
         dir_path = Path(analysis_path)
         if not dir_path.exists():
             return (
                 "❌ Analysis directory not found",
-                "", "", "", "", "", "", "", "", None, None, None
+                "", "", "", "", "", "", "", "", None, None, None, gr.update(visible=False)
             )
 
         # Load report files
@@ -169,6 +169,7 @@ class WebApp:
             'comprehensive': '07_comprehensive_report.md',
             'statements': '03_financial_statements.md',
             'metrics': '04_financial_metrics.md',
+            'banking_ratios': '04_banking_ratios.md',  # Banking-specific ratios (conditional)
             'financial_analysis': '05_financial_analysis.md',
             'risk_analysis': '06_risk_analysis.md',
             'verification': '08_verification.md',
@@ -181,7 +182,11 @@ class WebApp:
             if file_path.exists():
                 reports[key] = file_path.read_text()
             else:
-                reports[key] = f"*{filename} not found*"
+                # Don't mark banking_ratios as "not found" - it's conditional
+                if key == 'banking_ratios':
+                    reports[key] = None
+                else:
+                    reports[key] = f"*{filename} not found*"
 
         # Load chart data (if available) and convert to Plotly Figure objects
         margin_chart_fig = None
@@ -227,11 +232,15 @@ class WebApp:
 **Session ID:** {dir_path.name}
 """
 
+        # Check if banking ratios exist (banking sector analysis)
+        has_banking_ratios = reports.get('banking_ratios') is not None
+
         return (
             status_msg,
             reports.get('comprehensive', ''),
             reports.get('statements', ''),
             reports.get('metrics', ''),
+            reports.get('banking_ratios', '*Banking ratios not available for this company (non-banking sector)*'),
             reports.get('financial_analysis', ''),
             reports.get('risk_analysis', ''),
             reports.get('verification', ''),
@@ -239,7 +248,8 @@ class WebApp:
             reports.get('edgar_filings', '*EDGAR filings data not available for this analysis*'),
             margin_chart_fig,
             metrics_chart_fig,
-            risk_chart_fig
+            risk_chart_fig,
+            gr.update(visible=has_banking_ratios)  # Show banking tab only if banking ratios exist
         )
 
     def query_knowledge_base(
@@ -386,6 +396,22 @@ class WebApp:
             error_detail = traceback.format_exc()
             yield f"### ❌ Error\n\nFailed to query knowledge base:\n\n```\n{str(e)}\n```\n\n<details>\n<summary>Full Error Details</summary>\n\n```\n{error_detail}\n```\n</details>"
 
+    def _extract_ticker_from_query(self, query: str) -> str | None:
+        """
+        Extract ticker symbol from query using existing RAG utility.
+
+        This enables sector-specific features like banking ratios analysis.
+
+        Args:
+            query: User query string (e.g., "JPM", "Analyze JPMorgan Chase", "AAPL Q3 2024")
+
+        Returns:
+            Extracted ticker symbol or None if no ticker detected
+        """
+        from financial_research_agent.rag.utils import extract_tickers_from_query
+        detected_tickers = extract_tickers_from_query(query)
+        return detected_tickers[0] if detected_tickers else None
+
     async def generate_analysis(
         self,
         query: str,
@@ -401,7 +427,7 @@ class WebApp:
         if not query or query.strip() == "":
             yield (
                 "❌ Please enter a query or select a template",
-                "", "", "", "", "", "", "", "", None, None, None
+                "", "", "", "", "", "", "", "", "", None, None, None, gr.update(visible=False)
             )
             return
 
@@ -415,6 +441,7 @@ class WebApp:
                 'comprehensive': '*⏳ Waiting for comprehensive report...*',
                 'statements': '*⏳ Waiting for financial statements...*',
                 'metrics': '*⏳ Waiting for financial metrics...*',
+                'banking_ratios': None,  # Will be set if banking sector
                 'financial_analysis': '*⏳ Waiting for financial analysis...*',
                 'risk_analysis': '*⏳ Waiting for risk analysis...*',
                 'verification': '*⏳ Waiting for verification...*',
@@ -484,13 +511,17 @@ class WebApp:
                 if "OPENAI_BASE_URL" in os.environ:
                     del os.environ["OPENAI_BASE_URL"]
 
+            # Extract ticker from query before running analysis
+            # This enables sector-specific features like banking ratios
+            ticker = self._extract_ticker_from_query(query)
+
             # Initialize manager with progress callback
             progress(0.05, desc="Initializing analysis engine...")
             self.manager = EnhancedFinancialResearchManager(progress_callback=progress_callback)
 
-            # Start the analysis in background
+            # Start the analysis in background with ticker parameter
             import asyncio
-            analysis_task = asyncio.create_task(self.manager.run(query))
+            analysis_task = asyncio.create_task(self.manager.run(query, ticker=ticker))
 
             # Poll for completed reports while analysis runs
             last_check = 0
@@ -532,11 +563,15 @@ class WebApp:
 **Completed Reports:** {', '.join(sorted(loaded_reports))}
 """
 
+                        # Check if banking ratios exist
+                        has_banking = reports.get('banking_ratios') is not None
+
                         yield (
                             status_msg,
                             reports.get('comprehensive', ''),
                             reports.get('statements', ''),
                             reports.get('metrics', ''),
+                            reports.get('banking_ratios', '*Banking ratios not available (non-banking sector)*'),
                             reports.get('financial_analysis', ''),
                             reports.get('risk_analysis', ''),
                             reports.get('verification', ''),
@@ -544,7 +579,8 @@ class WebApp:
                             reports.get('edgar_filings', ''),
                             None,  # Charts not available yet
                             None,
-                            None
+                            None,
+                            gr.update(visible=has_banking)  # Banking tab visibility
                         )
 
             # Wait for analysis to complete
@@ -624,11 +660,15 @@ class WebApp:
 📊 All reports are now available in the tabs below. The analysis has been automatically indexed to the knowledge base for instant Q&A!
 """
 
+            # Check if banking ratios exist (banking sector analysis)
+            has_banking_ratios = reports.get('banking_ratios') is not None
+
             yield (
                 status_msg,
                 reports.get('comprehensive', ''),
                 reports.get('statements', ''),
                 reports.get('metrics', ''),
+                reports.get('banking_ratios', '*Banking ratios not available (non-banking sector)*'),
                 reports.get('financial_analysis', ''),
                 reports.get('risk_analysis', ''),
                 reports.get('verification', ''),
@@ -636,7 +676,8 @@ class WebApp:
                 reports.get('edgar_filings', '*EDGAR filings data not available for this analysis*'),
                 margin_chart_fig,
                 metrics_chart_fig,
-                risk_chart_fig
+                risk_chart_fig,
+                gr.update(visible=has_banking_ratios)  # Show banking tab only if ratios exist
             )
 
         except Exception as e:
@@ -654,7 +695,7 @@ If this error persists, please check:
 3. SEC EDGAR is accessible
 """
             print(f"\n{'='*60}\nERROR IN ANALYSIS:\n{'='*60}\n{error_details}\n{'='*60}\n")
-            yield (error_msg, "", "", "", "", "", "", "", "", None, None, None)
+            yield (error_msg, "", "", "", "", "", "", "", "", "", None, None, None, gr.update(visible=False))
 
     def _load_reports(self) -> dict[str, str]:
         """Load generated markdown reports from session directory."""
@@ -668,6 +709,7 @@ If this error persists, please check:
             'comprehensive': '07_comprehensive_report.md',
             'statements': '03_financial_statements.md',
             'metrics': '04_financial_metrics.md',
+            'banking_ratios': '04_banking_ratios.md',  # Banking-specific (conditional)
             'financial_analysis': '05_financial_analysis.md',
             'risk_analysis': '06_risk_analysis.md',
             'verification': '08_verification.md',
@@ -680,7 +722,11 @@ If this error persists, please check:
             if file_path.exists():
                 reports[key] = file_path.read_text(encoding='utf-8')
             else:
-                reports[key] = f"*Report not generated: {filename}*"
+                # Banking ratios is conditional - don't show "not generated" if it doesn't exist
+                if key == 'banking_ratios':
+                    reports[key] = None
+                else:
+                    reports[key] = f"*Report not generated: {filename}*"
 
         return reports
 
@@ -943,6 +989,15 @@ The following companies are not yet in the knowledge base:
         with gr.Blocks(
             theme=create_theme(),
             title="Financial Research Agent",
+            js="""
+            function refresh() {
+                const url = new URL(window.location);
+                if (url.searchParams.get('__theme') !== 'light') {
+                    url.searchParams.set('__theme', 'light');
+                    window.location.href = url.href;
+                }
+            }
+            """,
             css="""
                 /* ==================== PROFESSIONAL FINANCIAL PLATFORM STYLING ==================== */
 
@@ -1612,6 +1667,32 @@ The following companies are not yet in the knowledge base:
                                     visible=False
                                 )
 
+                        # ==================== TAB 4.5: Banking Ratios (Conditional) ====================
+                        with gr.Tab("🏦 Banking Ratios", id=8, visible=False) as banking_ratios_tab:
+                            gr.Markdown(
+                                """
+                                ## Banking Regulatory Ratios Analysis
+                                *Basel III capital ratios, liquidity metrics, and banking-specific ratios
+                                for commercial banks and financial institutions*
+
+                                **Includes:**
+                                - **TIER 1 Ratios (Directly Reported):** CET1, Tier 1 Capital, Total Capital, Leverage, LCR, NSFR
+                                - **TIER 2 Ratios (Calculated):** NIM, Efficiency Ratio, ROTCE, NPL Ratio, Loan-to-Deposit
+
+                                *This tab only appears for banking sector companies (commercial banks, G-SIBs, regional banks)*
+                                """
+                            )
+
+                            banking_ratios_output = gr.Markdown(
+                                elem_classes=["report-content"]
+                            )
+
+                            with gr.Row():
+                                download_banking_md = gr.DownloadButton(
+                                    label="📥 Download Banking Ratios",
+                                    visible=False
+                                )
+
                         # ==================== TAB 5: Financial Analysis ====================
                         with gr.Tab("💡 Analysis", id=4):
                             gr.Markdown(
@@ -1806,6 +1887,7 @@ The following companies are not yet in the knowledge base:
                     comprehensive_output,
                     statements_output,
                     metrics_output,
+                    banking_ratios_output,  # NEW: Banking ratios
                     financial_analysis_output,
                     risk_analysis_output,
                     verification_output,
@@ -1813,7 +1895,8 @@ The following companies are not yet in the knowledge base:
                     edgar_filings_output,
                     margin_chart,
                     metrics_chart,
-                    risk_chart
+                    risk_chart,
+                    banking_ratios_tab  # NEW: Tab visibility
                 ]
             )
 
@@ -1827,6 +1910,7 @@ The following companies are not yet in the knowledge base:
                     comprehensive_output,
                     statements_output,
                     metrics_output,
+                    banking_ratios_output,  # NEW: Banking ratios
                     financial_analysis_output,
                     risk_analysis_output,
                     verification_output,
@@ -1834,7 +1918,8 @@ The following companies are not yet in the knowledge base:
                     edgar_filings_output,
                     margin_chart,
                     metrics_chart,
-                    risk_chart
+                    risk_chart,
+                    banking_ratios_tab  # NEW: Tab visibility
                 ]
             )
 

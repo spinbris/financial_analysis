@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import shutil
 import time
 from collections.abc import Sequence
@@ -9,6 +10,8 @@ from datetime import datetime
 from pathlib import Path
 
 from rich.console import Console
+
+logger = logging.getLogger(__name__)
 
 from agents import Runner, RunResult, custom_span, gen_trace_id, trace
 from agents.mcp import MCPServerStdio
@@ -24,6 +27,9 @@ from .agents.risk_agent_enhanced import ComprehensiveRiskAnalysis, risk_agent_en
 from .agents.search_agent import search_agent
 from .agents.verifier_agent import VerificationResult, verifier_agent
 from .agents.writer_agent_enhanced import ComprehensiveFinancialReport, writer_agent_enhanced
+from .agents.banking_ratios_agent import banking_ratios_agent
+from .models.banking_ratios import BankingRegulatoryRatios
+from .utils.sector_detection import detect_industry_sector, should_analyze_banking_ratios, get_peer_group
 from .config import AgentConfig, EdgarConfig
 from .formatters import format_financial_statements, format_financial_statements_gt, format_financial_metrics
 from .printer import Printer
@@ -204,6 +210,14 @@ class EnhancedFinancialResearchManager:
                     self._report_progress(0.40, "Extracting financial statements (40+ line items)...")
                     # Gather financial metrics and statements
                     metrics_results = await self._gather_financial_metrics(query, ticker=self.ticker)
+
+                    # If banking sector, gather regulatory ratios (TIER 1)
+                    banking_ratios_result = None
+                    if self.ticker:
+                        sector = detect_industry_sector(self.ticker)
+                        if should_analyze_banking_ratios(sector):
+                            self._report_progress(0.48, "Extracting banking regulatory ratios...")
+                            banking_ratios_result = await self._gather_banking_ratios(self.ticker, sector)
 
                     self._report_progress(0.55, "Running specialist financial analyses...")
                     # Gather specialist analyses and save separately - pass metrics_results
@@ -890,6 +904,174 @@ Use get_company_facts to get ALL available XBRL data."""
                     f.write(traceback.format_exc())
 
             self.printer.update_item("metrics", "Financial metrics unavailable", is_done=True)
+            return None
+
+    async def _gather_banking_ratios(self, ticker: str, sector: str) -> BankingRegulatoryRatios | None:
+        """
+        Gather banking regulatory ratios (TIER 1) from 10-K MD&A disclosures.
+
+        This extracts Basel III capital ratios, liquidity metrics, and other
+        directly-reported regulatory ratios that are only available in narrative
+        text and tables (not in XBRL).
+
+        TIER 2 ratios (calculated) are already included in financial metrics.
+        """
+        if not self.edgar_server:
+            return None
+
+        self.printer.update_item("banking_ratios", "Extracting banking regulatory ratios...")
+
+        try:
+            # Clone banking ratios agent with EDGAR server access
+            banking_agent_with_edgar = banking_ratios_agent.clone(mcp_servers=[self.edgar_server])
+
+            # Get peer group for context
+            peer_group = get_peer_group(ticker, sector)
+
+            # Prepare input for agent
+            agent_input = f"""Extract banking regulatory ratios for {ticker} ({peer_group}).
+
+Focus on Basel III capital ratios and liquidity metrics from the most recent 10-K filing.
+
+Look for regulatory capital disclosures in:
+1. MD&A section under "Capital Management" or "Regulatory Capital"
+2. Tables showing CET1, Tier 1, Total Capital ratios
+3. Liquidity Coverage Ratio (LCR) and Net Stable Funding Ratio (NSFR) if disclosed
+4. Stress Capital Buffer and G-SIB surcharge if mentioned
+
+Extract the most recent period data and note the reporting period.
+"""
+
+            # Run the agent
+            result = await Runner.run(
+                banking_agent_with_edgar,
+                agent_input,
+                max_turns=AgentConfig.MAX_AGENT_TURNS
+            )
+
+            banking_ratios = result.final_output_as(BankingRegulatoryRatios)
+
+            # Save banking ratios analysis (04_banking_ratios.md)
+            # Note: This is numbered 04 because it's sector-specific and comes before general financials (05/06)
+            banking_content = "# Banking Regulatory Ratios Analysis\n\n"
+            banking_content += f"**Sector:** Commercial Banking\n"
+            banking_content += f"**Peer Group:** {peer_group}\n\n"
+
+            if banking_ratios.reporting_period:
+                banking_content += f"**Reporting Period:** {banking_ratios.reporting_period}\n"
+            if banking_ratios.prior_period:
+                banking_content += f"**Prior Period:** {banking_ratios.prior_period}\n"
+            if banking_ratios.regulatory_framework:
+                banking_content += f"**Regulatory Framework:** {banking_ratios.regulatory_framework}\n"
+
+            banking_content += "\n---\n\n"
+
+            # Capital Adequacy Status
+            capital_status = banking_ratios.get_capital_status()
+            banking_content += f"## Capital Adequacy Status\n\n**{capital_status}**\n\n"
+
+            if banking_ratios.capital_assessment:
+                banking_content += f"{banking_ratios.capital_assessment}\n\n"
+
+            # Basel III Capital Ratios
+            banking_content += "---\n\n## Basel III Capital Ratios\n\n"
+
+            if banking_ratios.cet1_ratio:
+                cushion = banking_ratios.capital_cushion()
+                cushion_str = f" (+{cushion:.1f}% above minimum)" if cushion else ""
+                banking_content += f"- **CET1 Ratio:** {banking_ratios.cet1_ratio:.1f}%{cushion_str}\n"
+            if banking_ratios.tier1_ratio:
+                banking_content += f"- **Tier 1 Ratio:** {banking_ratios.tier1_ratio:.1f}%\n"
+            if banking_ratios.total_capital_ratio:
+                banking_content += f"- **Total Capital Ratio:** {banking_ratios.total_capital_ratio:.1f}%\n"
+            if banking_ratios.tier1_leverage_ratio:
+                banking_content += f"- **Tier 1 Leverage Ratio:** {banking_ratios.tier1_leverage_ratio:.1f}%\n"
+            if banking_ratios.supplementary_leverage_ratio:
+                banking_content += f"- **Supplementary Leverage Ratio:** {banking_ratios.supplementary_leverage_ratio:.1f}%\n"
+
+            banking_content += "\n"
+
+            # Regulatory Minimums
+            if banking_ratios.cet1_minimum_required:
+                banking_content += "### Regulatory Minimums\n\n"
+                if banking_ratios.cet1_minimum_required:
+                    banking_content += f"- CET1 Minimum: {banking_ratios.cet1_minimum_required:.1f}%\n"
+                if banking_ratios.tier1_minimum_required:
+                    banking_content += f"- Tier 1 Minimum: {banking_ratios.tier1_minimum_required:.1f}%\n"
+                if banking_ratios.total_capital_minimum_required:
+                    banking_content += f"- Total Capital Minimum: {banking_ratios.total_capital_minimum_required:.1f}%\n"
+                banking_content += "\n"
+
+            # Capital Components
+            if banking_ratios.cet1_capital or banking_ratios.risk_weighted_assets:
+                banking_content += "### Capital Components\n\n"
+                if banking_ratios.cet1_capital:
+                    banking_content += f"- **CET1 Capital:** ${banking_ratios.cet1_capital:.1f} billion\n"
+                if banking_ratios.tier1_capital:
+                    banking_content += f"- **Tier 1 Capital:** ${banking_ratios.tier1_capital:.1f} billion\n"
+                if banking_ratios.total_capital:
+                    banking_content += f"- **Total Capital:** ${banking_ratios.total_capital:.1f} billion\n"
+                if banking_ratios.risk_weighted_assets:
+                    banking_content += f"- **Risk-Weighted Assets:** ${banking_ratios.risk_weighted_assets:.1f} billion\n"
+                banking_content += "\n"
+
+            # Liquidity Metrics
+            if banking_ratios.lcr or banking_ratios.nsfr:
+                liquidity_status = banking_ratios.get_liquidity_status()
+                banking_content += f"---\n\n## Liquidity Metrics\n\n**Status:** {liquidity_status}\n\n"
+                if banking_ratios.lcr:
+                    banking_content += f"- **Liquidity Coverage Ratio (LCR):** {banking_ratios.lcr:.1f}%\n"
+                if banking_ratios.nsfr:
+                    banking_content += f"- **Net Stable Funding Ratio (NSFR):** {banking_ratios.nsfr:.1f}%\n"
+                banking_content += "\n"
+
+            # U.S. Stress Test Requirements
+            if banking_ratios.stress_capital_buffer or banking_ratios.gsib_surcharge:
+                banking_content += "---\n\n## U.S. Stress Test Requirements\n\n"
+                if banking_ratios.stress_capital_buffer:
+                    banking_content += f"- **Stress Capital Buffer (SCB):** {banking_ratios.stress_capital_buffer:.1f}%\n"
+                if banking_ratios.gsib_surcharge:
+                    banking_content += f"- **G-SIB Surcharge:** {banking_ratios.gsib_surcharge:.1f}%\n"
+                banking_content += "\n"
+
+            # Key Strengths
+            if banking_ratios.key_strengths:
+                banking_content += "---\n\n## Key Strengths\n\n"
+                for strength in banking_ratios.key_strengths:
+                    banking_content += f"- {strength}\n"
+                banking_content += "\n"
+
+            # Key Concerns
+            if banking_ratios.key_concerns:
+                banking_content += "---\n\n## Key Concerns\n\n"
+                for concern in banking_ratios.key_concerns:
+                    banking_content += f"- {concern}\n"
+                banking_content += "\n"
+
+            # Note about TIER 2 ratios
+            banking_content += "---\n\n## Banking-Specific Financial Ratios (Calculated)\n\n"
+            banking_content += "*Banking profitability, credit quality, and balance sheet composition ratios "
+            banking_content += "(NIM, Efficiency Ratio, ROTCE, NPL Ratio, Loan-to-Deposit, etc.) are "
+            banking_content += "included in the Financial Metrics report (04_financial_metrics.md).*\n"
+
+            self._save_output("04_banking_ratios.md", banking_content)
+            self.printer.mark_item_done("banking_ratios")
+
+            return banking_ratios
+
+        except Exception as e:
+            import traceback
+            error_msg = str(e)
+            self.console.print(f"[yellow]Warning: Banking ratios extraction failed: {error_msg}[/yellow]")
+
+            # Save error details to file
+            if self.session_dir:
+                error_file = self.session_dir / "error_log.txt"
+                with open(error_file, 'a') as f:
+                    f.write(f"\n\n=== Banking Ratios Error ({datetime.now().isoformat()}) ===\n")
+                    f.write(traceback.format_exc())
+
+            self.printer.update_item("banking_ratios", "Banking ratios unavailable", is_done=True)
             return None
 
     async def _gather_specialist_analyses(self, query: str, search_results: Sequence[str], metrics_results = None) -> None:
