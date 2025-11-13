@@ -16,7 +16,7 @@ financials = company.get_financials()
 # Get balance sheet
 print("\nBalance Sheet:")
 bs = financials.balance_sheet()
-print(bs.head())  # Show first 5 rows
+print(bs)  # Show first 5 rows
 
 print("\n" + "="*60)
 print("✅ EdgarTools is working!")
