@@ -4,7 +4,7 @@ Uses edgartools wrapper for clean data extraction and comprehensive ratio calcul
 """
 
 from typing import Dict, Optional
-from edgartools_wrapper import EdgarToolsWrapper
+from financial_research_agent.tools.edgartools_wrapper import EdgarToolsWrapper
 
 
 class FinancialRatiosCalculator:

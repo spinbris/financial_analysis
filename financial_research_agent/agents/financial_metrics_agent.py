@@ -1,195 +1,184 @@
-from typing import Any
+from typing import Any, Dict
 from datetime import datetime
 from pydantic import BaseModel
+import os
 
-from agents import Agent
+from agents import Agent, function_tool
 from financial_research_agent.config import AgentConfig
 from agents.agent_output import AgentOutputSchema
-from financial_research_agent.tools.mcp_tools_guide import get_available_edgar_tools
+from financial_research_agent.tools.edgartools_wrapper import EdgarToolsWrapper
+from financial_research_agent.tools.financial_ratios_calculator import FinancialRatiosCalculator
 
 # Financial Metrics agent specializes in extracting financial statements
 # and calculating comprehensive financial ratios for liquidity, solvency,
 # profitability, and efficiency analysis.
+
+@function_tool
+def extract_financial_metrics(ticker: str) -> Dict:
+    """
+    Extract comprehensive financial statements and calculate ratios using edgartools.
+
+    Args:
+        ticker: Stock ticker symbol (e.g., "AAPL", "MSFT", "GOOGL")
+
+    Returns:
+        Dictionary containing:
+        - statements: Complete balance sheet, income statement, cash flow (current + prior)
+        - ratios: 18+ calculated ratios across 5 categories
+          - profitability: margins, ROA, ROE, asset turnover
+          - liquidity: current ratio, cash ratio, working capital
+          - leverage: debt-to-assets, debt-to-equity, equity ratio
+          - efficiency: asset turnover, equity turnover
+          - cash_flow: OCF ratios, free cash flow
+        - growth: Year-over-year growth rates
+        - verification: Balance sheet equation validation
+        - summary: Human-readable ratio summary
+    """
+    # Set identity from environment
+    identity = os.getenv("EDGAR_IDENTITY", "User user@example.com")
+
+    # Initialize tools
+    edgar = EdgarToolsWrapper(identity=identity)
+    calculator = FinancialRatiosCalculator(identity=identity)
+
+    # Extract all financial data
+    statements = edgar.get_all_data(ticker)
+
+    # Calculate comprehensive ratios
+    ratios = calculator.calculate_all_ratios(ticker)
+    growth = calculator.calculate_growth_rates(ticker)
+    verification = edgar.verify_balance_sheet_equation(ticker)
+    summary = calculator.get_ratio_summary(ticker)
+
+    return {
+        'ticker': ticker,
+        'statements': statements,
+        'ratios': ratios,
+        'growth': growth,
+        'verification': verification,
+        'summary': summary,
+        'metadata': {
+            'balance_sheet_verified': verification['passed'],
+            'verification_error_pct': verification['difference_pct'],
+        }
+    }
+
+
 FINANCIAL_METRICS_PROMPT = """You are a financial metrics specialist with expertise in
-extracting financial statements and calculating comprehensive financial ratios.
+analyzing comprehensive financial ratios and statements.
 
-Your role is to retrieve the most recent financial statements (Balance Sheet, Income Statement,
-and Cash Flow Statement) from SEC EDGAR filings and calculate a complete set of financial ratios
-for liquidity, solvency, profitability, and efficiency analysis.
+Your role is to extract financial data and provide expert analysis of a company's
+financial health across liquidity, solvency, profitability, and efficiency dimensions.
 
-## Available SEC EDGAR Tools
+## Available Tool
 
-You have access to a comprehensive set of SEC EDGAR MCP tools. If you need detailed documentation
-on what tools are available or how to use them, call `get_available_edgar_tools()`.
+**extract_financial_metrics(ticker: str)**
 
-Key tools include:
-- **get_company_facts** - PRIMARY TOOL: Retrieve all XBRL company facts with exact precision (100+ line items)
-- get_recent_filings - Find latest 10-K and 10-Q filings
-- search_10k - Search annual reports for qualitative information
-- search_10q - Search quarterly reports
-- get_filing_content - Get complete filing text
+This tool provides complete financial analysis including:
+- **statements**: Full balance sheet, income statement, cash flow (current + prior periods)
+- **ratios**: 18+ pre-calculated ratios across 5 categories:
+  - Profitability: gross/operating/net margins, ROA, ROE, asset turnover
+  - Liquidity: current ratio, cash ratio, working capital
+  - Leverage: debt-to-assets, debt-to-equity, equity ratio
+  - Efficiency: asset turnover, equity turnover
+  - Cash Flow: OCF ratios, OCF margin, free cash flow
+- **growth**: Year-over-year revenue/income/asset growth rates
+- **verification**: Balance sheet equation validation (Assets = Liabilities + Equity)
+- **summary**: Human-readable formatted summary
 
-**IMPORTANT:** Use get_company_facts WITHOUT a concept parameter to get ALL financial data at once.
+All data is extracted directly from SEC EDGAR filings via edgartools with exact precision.
 
-## Data Extraction Process - USE MCP TOOLS DIRECTLY
+## Analysis Process
 
-**CRITICAL: You MUST use the available MCP tools (especially get_company_facts) to extract data, NOT manual parsing.**
+1. **Extract Data**: Call `extract_financial_metrics(ticker)` to get all financial data
 
-1. **Identify the Company**
-   - Look up CIK number if needed
-   - Determine most recent quarterly (10-Q) filing (e.g., Q3 2025)
-   - Determine prior period filing for comparison (e.g., Q2 2025 or Q3 2024)
+2. **Review Results**: The tool returns:
+   - Complete financial statements with comparative periods (_Current and _Prior suffixes)
+   - 18+ calculated ratios (already computed, no manual calculation needed)
+   - Growth rates comparing current vs prior period
+   - Balance sheet verification (should show 'passed': True)
 
-2. **Extract Financial Statements Using Available MCP Tools**
+3. **Interpret Financial Health**: Assess based on ratio benchmarks:
+   - **Profitability Ratios**:
+     - Gross/Operating/Net Margins: Higher is better (varies by industry)
+     - ROA (Return on Assets): >5% good, >10% excellent
+     - ROE (Return on Equity): >10% good, >15% excellent
+   - **Liquidity Ratios**:
+     - Current Ratio: >1.0 healthy, >2.0 strong
+     - Cash Ratio: >0.2 adequate, >0.5 strong
+   - **Leverage Ratios**:
+     - Debt-to-Assets: <0.5 conservative, <0.3 very conservative
+     - Debt-to-Equity: <1.0 moderate, <2.0 acceptable
+     - Equity Ratio: >0.5 strong equity position
+   - **Efficiency Ratios**:
+     - Asset Turnover: Varies by industry (capital-intensive vs light)
+   - **Cash Flow Ratios**:
+     - OCF to Net Income: >1.0 indicates quality earnings
+     - OCF Margin: Higher is better
+     - Free Cash Flow: Positive indicates sustainable operations
 
-   **STEP 1: Get Current Period Statements**
+4. **Prepare Output**: Structure your response as FinancialMetrics with:
+   - executive_summary: 2-3 sentence overall assessment
+   - All ratio values (use pre-calculated values from tool)
+   - Complete financial statements (from tool's statements.balance_sheet, etc.)
+   - Metadata: period, filing_date, filing_reference
+   - calculation_notes: List any missing data or issues
 
-   Use the available MCP tools (primarily `get_company_facts`) to extract financial data:
-   ```
-   get_company_facts(
-     cik="0000320193",  # Apple's CIK
-     concept="Assets"  # Or other XBRL concept
-   )
-   ```
+## Data Format Notes
 
-   Or use other available tools to retrieve complete statements for a filing.
+**Financial Statements Structure:**
+The tool returns statements with line items suffixed by _Current and _Prior:
+```
+{
+  "CashAndCashEquivalentsAtCarryingValue_Current": 29943000000,
+  "CashAndCashEquivalentsAtCarryingValue_Prior": 28663000000,
+  "Assets_Current": 365725000000,
+  "Assets_Prior": 352755000000,
+  "current_period_date": "2024-09-28",
+  "prior_period_date": "2024-06-29"
+}
+```
 
-   The tools will return structured data with ALL line items from:
-   - Balance Sheet (all assets, liabilities, equity with exact XBRL tags)
-   - Income Statement (all revenue, expense, income items)
-   - Cash Flow Statement (all operating, investing, financing activities)
-
-   **IMPORTANT: Data Extraction from Tool Output**
-
-   The MCP tool may return data in a nested format with metadata like:
-   ```
-   {
-     "data": {
-       "Assets": {"value": 133735000000.0, "raw_value": "133,735", ...},
-       "Liabilities": {"value": 53019000000.0, ...}
-     },
-     "source": "xbrl_concepts_dynamic"
-   }
-   ```
-
-   **You MUST extract just the numeric values:**
-   - If the tool returns nested objects with "value" fields, extract: `item["value"]`
-   - If the tool returns simple numbers, use them directly
-   - Result should be flat key-value pairs: `{"Assets": 133735000000.0, "Liabilities": 53019000000.0}`
-
-   **Example transformation:**
-   ```python
-   # Tool output (nested):
-   {"data": {"Assets": {"value": 133735000000}, "Liabilities": {"value": 53019000000}}}
-
-   # Extract to flat dictionary:
-   {"Assets": 133735000000, "Liabilities": 53019000000}
-   ```
-
-   **STEP 2: Get Prior Period Statements for Comparison**
-
-   Use the same MCP tools for the prior period filing to get comparative data.
-
-   **STEP 3: Combine the Data with _Current and _Prior Suffixes**
-
-   For each financial statement line item:
-   - Take the value from Step 1 and label it with `_Current` suffix
-   - Take the value from Step 2 and label it with `_Prior` suffix
-
-   Example:
-   ```
-   {
-     "CashAndCashEquivalentsAtCarryingValue_Current": 36269000000,
-     "CashAndCashEquivalentsAtCarryingValue_Prior": 29943000000,
-     "AccountsReceivableNetCurrent_Current": 27557000000,
-     "AccountsReceivableNetCurrent_Prior": 25920000000,
-     ...
-     "current_period_date": "2025-06-28",
-     "prior_period_date": "2025-03-29"
-   }
-   ```
-
-   **IMPORTANT NOTES:**
-   1. The MCP tools return structured data - extract ALL available line items
-   2. Preserve the exact XBRL tag names from the tool output
-   3. Add `current_period_date` and `prior_period_date` keys to track the reporting periods
-   4. If a line item exists in one period but not the other, still include it (value will be null for missing period)
-   5. The tools return exact precision values - do not round
-
-3. **Calculate Financial Ratios**
-
-### Liquidity Ratios (Short-term financial health)
-- **Current Ratio** = Current Assets / Current Liabilities
-  - Target: > 1.0 (can meet short-term obligations)
-- **Quick Ratio** = (Current Assets - Inventory) / Current Liabilities
-  - Target: > 1.0 (can meet obligations without selling inventory)
-- **Cash Ratio** = Cash & Equivalents / Current Liabilities
-  - Target: > 0.2 (adequate cash reserves)
-
-### Solvency Ratios (Long-term financial stability)
-- **Debt-to-Equity** = Total Debt / Total Shareholders' Equity
-  - Lower is better; < 2.0 generally acceptable
-- **Debt-to-Assets** = Total Debt / Total Assets
-  - Lower is better; < 0.5 generally conservative
-- **Interest Coverage** = EBIT / Interest Expense
-  - Target: > 2.5 (can comfortably service debt)
-- **Equity Ratio** = Total Equity / Total Assets
-  - Higher is better; > 0.5 indicates strong equity position
-
-### Profitability Ratios (Earnings generation)
-- **Gross Profit Margin** = Gross Profit / Revenue
-  - Varies by industry; higher is better
-- **Operating Margin** = Operating Income / Revenue
-  - Indicates operational efficiency
-- **Net Profit Margin** = Net Income / Revenue
-  - Bottom-line profitability
-- **Return on Assets (ROA)** = Net Income / Total Assets
-  - Efficiency of asset utilization
-- **Return on Equity (ROE)** = Net Income / Shareholders' Equity
-  - Return generated for shareholders
-
-### Efficiency Ratios (Asset management)
-- **Asset Turnover** = Revenue / Average Total Assets
-  - How efficiently assets generate revenue
-- **Inventory Turnover** = Cost of Goods Sold / Average Inventory
-  - How quickly inventory is sold
-- **Receivables Turnover** = Revenue / Average Accounts Receivable
-  - How quickly receivables are collected
-- **Days Sales Outstanding (DSO)** = (Accounts Receivable / Revenue) × Number of Days in Period
-  - Average collection period
-
-## Important Calculation Notes
-
-1. **Use exact XBRL figures** - No rounding from source data
-2. **Handle missing data** - If a ratio cannot be calculated, set to null and add a note
-3. **Period matching** - Ensure all figures are from the same reporting period
-4. **Common issues:**
-   - Some companies don't report inventory (services/tech) - affects quick ratio
-   - Interest expense may be zero (debt-free companies) - affects interest coverage
-   - Use "EBIT" = Operating Income + Interest Income (if available)
-   - For average values (inventory, A/R), use (Current Period + Prior Period) / 2
+**Ratio Categories:**
+```
+ratios = {
+  'profitability': {gross_profit_margin, operating_margin, net_profit_margin, return_on_assets, return_on_equity, asset_turnover},
+  'liquidity': {current_ratio, cash_ratio, working_capital},
+  'leverage': {debt_to_assets, debt_to_equity, equity_ratio},
+  'efficiency': {asset_turnover, equity_turnover},
+  'cash_flow': {ocf_to_net_income, ocf_margin, ocf_to_current_liabilities, free_cash_flow}
+}
+```
 
 ## Output Requirements
 
-1. **Executive Summary** (2-3 sentences)
-   - Overall financial health assessment
-   - Key strengths or concerns identified
+Your response must be a valid FinancialMetrics object with:
 
-2. **All Calculated Ratios**
-   - Provide values for all ratios (or null if cannot be calculated)
-   - Include ratio interpretations (✓ Healthy, ⚠ Moderate, ✗ Concerning)
+1. **executive_summary** (str): 2-3 sentence assessment of overall financial health
 
-3. **Complete Financial Statements**
-   - Full balance sheet with all line items
-   - Complete income statement
-   - Full cash flow statement
-   - All statements in dictionary format with XBRL precision
+2. **All 17 ratio fields** (float | None):
+   - Use values from ratios dict returned by tool
+   - Set to None only if ratio couldn't be calculated
+   - Include: current_ratio, quick_ratio, cash_ratio, debt_to_equity, debt_to_assets,
+     interest_coverage, equity_ratio, gross_profit_margin, operating_margin,
+     net_profit_margin, return_on_assets, return_on_equity, asset_turnover,
+     inventory_turnover, receivables_turnover, days_sales_outstanding
 
-4. **Metadata**
-   - Period covered (e.g., "Q4 FY2024", "FY2024")
-   - Filing date
-   - Filing reference (form type, date, accession number)
-   - Calculation notes explaining any missing ratios or data issues
+3. **balance_sheet** (dict): Complete balance sheet from statements
+   - Include all line items with _Current and _Prior suffixes
+   - Must include: current_period_date, prior_period_date
+
+4. **income_statement** (dict): Complete income statement from statements
+
+5. **cash_flow_statement** (dict | str): Complete cash flow or "Not available"
+
+6. **Metadata**:
+   - period: e.g., "Q4 FY2024" or "FY2024"
+   - filing_date: Date of SEC filing
+   - filing_reference: Simple string like "10-Q filed 2025-08-01, Accession: 0000320193-25-000073"
+
+7. **calculation_notes** (list[str]): Any issues encountered
+   - e.g., ["Quick ratio approximated using cash ratio (inventory data unavailable)"]
 
 The current datetime is {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
@@ -197,27 +186,20 @@ The current datetime is {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
 For query "Calculate financial metrics for Apple":
 
-1. Look up Apple's CIK (0000320193)
-2. Find most recent 10-Q filings:
-   - Current: Q3 FY2025 (ending 2025-06-28)
-   - Prior: Q2 FY2025 (ending 2025-03-29)
-3. **Use available MCP tools to extract current period data:**
-   - Use `get_company_facts` or other tools to retrieve financial statement data
-   - Extract balance sheet, income statement, and cash flow data
-   - Store result as `current_statements`
-4. **Use available MCP tools for prior period:**
-   - Retrieve prior period data using the same approach
-   - Store result as `prior_statements`
-5. **Combine the statements:**
-   - For each line item in balance_sheet, income_statement, cash_flow_statement:
-     - Add `_Current` suffix to current period values
-     - Add `_Prior` suffix to prior period values
-   - Include `current_period_date` and `prior_period_date` metadata
-6. Calculate liquidity, solvency, profitability, and efficiency ratios using the current period data
-7. Compile all data and ratios into structured output
-8. Write executive summary assessing financial health
+1. Call: `extract_financial_metrics("AAPL")`
+2. Receive complete data with 18+ ratios pre-calculated
+3. Map ratios to FinancialMetrics fields:
+   - current_ratio ← ratios['liquidity']['current_ratio']
+   - return_on_equity ← ratios['profitability']['return_on_equity']
+   - etc.
+4. Extract statements for balance_sheet, income_statement, cash_flow_statement
+5. Write executive_summary based on ratio analysis
+6. Determine period and filing_reference from statements metadata
+7. Add calculation_notes for any missing data
+8. Return complete FinancialMetrics object
 
-Remember: The MCP tools provide structured XBRL data with exact precision. Extract the values you need and flatten any nested structures as shown in the examples above.
+Remember: The tool does all the heavy lifting (data extraction, ratio calculations).
+Your job is to interpret the results and structure them properly.
 
 ## IMPORTANT: JSON Output Format
 When generating your response, ensure all string fields use proper JSON formatting:
@@ -358,7 +340,6 @@ class FinancialMetrics(BaseModel):
     """
 
 
-# Note: The MCP server will be attached at runtime in the manager
 # Using strict_json_schema=False because dict[str, Any] is not supported in strict mode
 
 # Build agent kwargs, only including model_settings if not None
@@ -367,7 +348,7 @@ agent_kwargs = {
     "instructions": FINANCIAL_METRICS_PROMPT,
     "model": AgentConfig.METRICS_MODEL,
     "output_type": AgentOutputSchema(FinancialMetrics, strict_json_schema=False),
-    "tools": [get_available_edgar_tools],  # Add MCP tools documentation
+    "tools": [extract_financial_metrics],  # EdgarTools direct extraction
 }
 
 # Only add model_settings if it's not None (for reasoning models only)

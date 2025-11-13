@@ -406,6 +406,10 @@ class WebApp:
             return
 
         try:
+            # Reset session directory for new analysis (prevents showing old reports)
+            self.current_session_dir = None
+            self.manager = None
+
             # Initialize empty reports
             reports = {
                 'comprehensive': '*⏳ Waiting for comprehensive report...*',
