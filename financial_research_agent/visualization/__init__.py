@@ -1,17 +1,9 @@
 """
-Visualization module for financial data charts and dashboards.
+Financial visualization module.
+
+Generates interactive charts from SEC EDGAR data using edgartools and plotly.
 """
 
-from financial_research_agent.visualization.charts import (
-    create_revenue_trend_chart,
-    create_margin_comparison_chart,
-    create_cash_flow_waterfall,
-    create_key_metrics_dashboard,
-)
+from .chart_generator import FinancialChartGenerator, generate_charts_for_analysis
 
-__all__ = [
-    "create_revenue_trend_chart",
-    "create_margin_comparison_chart",
-    "create_cash_flow_waterfall",
-    "create_key_metrics_dashboard",
-]
+__all__ = ['FinancialChartGenerator', 'generate_charts_for_analysis']

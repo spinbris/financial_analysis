@@ -206,8 +206,25 @@ class EnhancedFinancialResearchManager:
                     metrics_results = await self._gather_financial_metrics(query, ticker=self.ticker)
 
                     self._report_progress(0.55, "Running specialist financial analyses...")
-                    # Gather specialist analyses and save separately
-                    await self._gather_specialist_analyses(query, search_results)
+                    # Gather specialist analyses and save separately - pass metrics_results
+                    await self._gather_specialist_analyses(query, search_results, metrics_results)
+
+                    # Generate visualization charts (optional, non-blocking)
+                    if metrics_results and self.ticker:
+                        self._report_progress(0.65, "Generating interactive charts...")
+                        try:
+                            from financial_research_agent.visualization import generate_charts_for_analysis
+                            charts_count = generate_charts_for_analysis(
+                                self.session_dir,
+                                ticker=self.ticker,
+                                metrics_results=metrics_results
+                            )
+                            if charts_count > 0:
+                                logger.info(f"Generated {charts_count} visualization charts")
+                        except Exception as e:
+                            logger.warning(f"Failed to generate charts (non-critical): {e}")
+                            # Don't fail the analysis if charts fail
+
                 else:
                     # EDGAR not enabled - just run web search
                     self._report_progress(0.20, "Searching web sources...")
@@ -875,7 +892,7 @@ Use get_company_facts to get ALL available XBRL data."""
             self.printer.update_item("metrics", "Financial metrics unavailable", is_done=True)
             return None
 
-    async def _gather_specialist_analyses(self, query: str, search_results: Sequence[str]) -> None:
+    async def _gather_specialist_analyses(self, query: str, search_results: Sequence[str], metrics_results = None) -> None:
         """Gather detailed financial and risk analyses and save separately."""
         if not self.edgar_server:
             return
@@ -887,12 +904,47 @@ Use get_company_facts to get ALL available XBRL data."""
             financials_with_edgar = financials_agent_enhanced.clone(mcp_servers=[self.edgar_server])
             risk_with_edgar = risk_agent_enhanced.clone(mcp_servers=[self.edgar_server])
 
-            # Prepare input data
-            input_data = f"Query: {query}\n\nContext from research:\n{search_results[:3]}"
+            # Prepare input data for financials agent - include pre-extracted financial data
+            financials_input = f"Query: {query}\n\nContext from research:\n{search_results[:3]}\n\n"
 
-            # Run financial analysis
+            if metrics_results:
+                financials_input += "## Pre-Extracted Financial Data\n\n"
+                financials_input += "**CRITICAL:** Complete financial statements and ratios have been extracted and saved to files 03_financial_statements.md and 04_financial_metrics.md.\n"
+                financials_input += "Your job is to INTERPRET this data, not re-extract it. Use MD&A and web sources for context.\n\n"
+
+                # Build a summary of available ratios from the FinancialMetrics object
+                financials_input += "### Available Pre-Calculated Ratios\n\n"
+                financials_input += f"**Executive Summary:** {metrics_results.executive_summary}\n\n"
+
+                # List key ratios that are non-None
+                ratio_categories = []
+                if metrics_results.current_ratio or metrics_results.quick_ratio:
+                    ratio_categories.append("Liquidity Ratios (current ratio, quick ratio, cash ratio)")
+                if metrics_results.debt_to_equity or metrics_results.debt_to_assets:
+                    ratio_categories.append("Solvency Ratios (debt-to-equity, debt-to-assets, equity ratio)")
+                if metrics_results.net_profit_margin or metrics_results.return_on_assets or metrics_results.return_on_equity:
+                    ratio_categories.append("Profitability Ratios (gross margin, operating margin, net margin, ROA, ROE)")
+                if metrics_results.asset_turnover:
+                    ratio_categories.append("Efficiency Ratios (asset turnover, inventory turnover, receivables turnover)")
+
+                if ratio_categories:
+                    financials_input += "**Calculated Ratio Categories:**\n"
+                    for cat in ratio_categories:
+                        financials_input += f"- {cat}\n"
+                    financials_input += "\n"
+
+                financials_input += "**IMPORTANT:** Review files 03_financial_statements.md and 04_financial_metrics.md for complete data.\n"
+                financials_input += "Reference these pre-extracted values in your analysis. Do NOT attempt to re-extract from EDGAR.\n\n"
+            else:
+                financials_input += "\n**NOTE:** Financial data extraction was unavailable. "
+                financials_input += "Focus on qualitative analysis from MD&A, segment discussions, and web sources.\n\n"
+
+            # Prepare input data for risk agent (simpler - just context)
+            risk_input = f"Query: {query}\n\nContext from research:\n{search_results[:3]}"
+
+            # Run financial analysis with pre-extracted data
             self.printer.update_item("specialist_analysis", "Running financial analysis...")
-            financials_result = await Runner.run(financials_with_edgar, input_data, max_turns=AgentConfig.MAX_AGENT_TURNS)
+            financials_result = await Runner.run(financials_with_edgar, financials_input, max_turns=AgentConfig.MAX_AGENT_TURNS)
             financials_analysis = financials_result.final_output_as(ComprehensiveFinancialAnalysis)
 
             # Save financial analysis (05_financial_analysis.md)

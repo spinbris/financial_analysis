@@ -188,35 +188,35 @@ class WebApp:
         metrics_chart_fig = None
         risk_chart_fig = None
 
-        margin_chart_path = dir_path / "chart_margins.json"
-        if margin_chart_path.exists():
+        # Revenue & Profitability chart (repurposed margin_chart slot)
+        revenue_chart_path = dir_path / "chart_revenue_profitability.json"
+        if revenue_chart_path.exists():
             try:
-                with open(margin_chart_path, 'r') as f:
-                    margin_chart_data = json.load(f)
-                # Convert JSON dict to Plotly Figure
-                margin_chart_fig = go.Figure(margin_chart_data)
+                with open(revenue_chart_path, 'r') as f:
+                    revenue_chart_data = json.load(f)
+                margin_chart_fig = go.Figure(revenue_chart_data)
             except Exception as e:
-                print(f"Warning: Failed to load margin chart: {e}")
+                print(f"Warning: Failed to load revenue chart: {e}")
 
-        metrics_chart_path = dir_path / "chart_metrics.json"
-        if metrics_chart_path.exists():
+        # Margin Trends chart (repurposed metrics_chart slot)
+        margin_trends_path = dir_path / "chart_margins.json"
+        if margin_trends_path.exists():
             try:
-                with open(metrics_chart_path, 'r') as f:
-                    metrics_chart_data = json.load(f)
-                # Convert JSON dict to Plotly Figure
-                metrics_chart_fig = go.Figure(metrics_chart_data)
+                with open(margin_trends_path, 'r') as f:
+                    margin_trends_data = json.load(f)
+                metrics_chart_fig = go.Figure(margin_trends_data)
             except Exception as e:
-                print(f"Warning: Failed to load metrics chart: {e}")
+                print(f"Warning: Failed to load margin trends chart: {e}")
 
-        risk_chart_path = dir_path / "chart_risk_categories.json"
-        if risk_chart_path.exists():
+        # Balance Sheet chart (repurposed risk_chart slot)
+        balance_sheet_path = dir_path / "chart_balance_sheet.json"
+        if balance_sheet_path.exists():
             try:
-                with open(risk_chart_path, 'r') as f:
-                    risk_chart_data = json.load(f)
-                # Convert JSON dict to Plotly Figure
-                risk_chart_fig = go.Figure(risk_chart_data)
+                with open(balance_sheet_path, 'r') as f:
+                    balance_sheet_data = json.load(f)
+                risk_chart_fig = go.Figure(balance_sheet_data)
             except Exception as e:
-                print(f"Warning: Failed to load risk chart: {e}")
+                print(f"Warning: Failed to load balance sheet chart: {e}")
 
         # Format timestamp with human-readable date
         age_info = format_analysis_age(dir_path.name)
@@ -401,7 +401,7 @@ class WebApp:
         if not query or query.strip() == "":
             yield (
                 "❌ Please enter a query or select a template",
-                "", "", "", "", "", "", None, None, None
+                "", "", "", "", "", "", "", "", None, None, None
             )
             return
 
@@ -417,7 +417,9 @@ class WebApp:
                 'metrics': '*⏳ Waiting for financial metrics...*',
                 'financial_analysis': '*⏳ Waiting for financial analysis...*',
                 'risk_analysis': '*⏳ Waiting for risk analysis...*',
-                'verification': '*⏳ Waiting for verification...*'
+                'verification': '*⏳ Waiting for verification...*',
+                'search_results': '*⏳ Waiting for search results...*',
+                'edgar_filings': '*⏳ Waiting for EDGAR filings...*'
             }
 
             # Track which reports we've already loaded
@@ -538,6 +540,8 @@ class WebApp:
                             reports.get('financial_analysis', ''),
                             reports.get('risk_analysis', ''),
                             reports.get('verification', ''),
+                            reports.get('search_results', ''),
+                            reports.get('edgar_filings', ''),
                             None,  # Charts not available yet
                             None,
                             None
@@ -571,43 +575,41 @@ class WebApp:
                 # Don't fail the whole analysis if indexing fails
                 print(f"Warning: Failed to auto-index analysis: {index_error}")
 
-            # Auto-generate charts
+            # Auto-generate charts (optional - won't break if unavailable)
             progress(0.98, desc="Generating interactive charts...")
             margin_chart_fig = None
             metrics_chart_fig = None
             risk_chart_fig = None
 
             try:
-                from scripts.generate_charts_from_analysis import generate_charts_for_analysis
+                # Load the generated charts (charts are now generated during analysis by manager)
+                import json
+                import plotly.graph_objects as go
 
-                # Generate charts automatically
-                charts_count = generate_charts_for_analysis(self.current_session_dir, ticker=ticker)
+                # Revenue & Profitability chart (NEW)
+                revenue_chart_path = self.current_session_dir / "chart_revenue_profitability.json"
+                if revenue_chart_path.exists():
+                    with open(revenue_chart_path, 'r') as f:
+                        revenue_chart_data = json.load(f)
+                    margin_chart_fig = go.Figure(revenue_chart_data)  # Use margin_chart_fig slot
 
-                if charts_count and charts_count > 0:
-                    # Load the generated charts
-                    import json
-                    import plotly.graph_objects as go
+                # Margin Trends chart
+                margin_trends_path = self.current_session_dir / "chart_margins.json"
+                if margin_trends_path.exists():
+                    with open(margin_trends_path, 'r') as f:
+                        margin_trends_data = json.load(f)
+                    metrics_chart_fig = go.Figure(margin_trends_data)  # Use metrics_chart_fig slot
 
-                    margin_chart_path = self.current_session_dir / "chart_margins.json"
-                    if margin_chart_path.exists():
-                        with open(margin_chart_path, 'r') as f:
-                            margin_chart_data = json.load(f)
-                        margin_chart_fig = go.Figure(margin_chart_data)
-
-                    metrics_chart_path = self.current_session_dir / "chart_metrics.json"
-                    if metrics_chart_path.exists():
-                        with open(metrics_chart_path, 'r') as f:
-                            metrics_chart_data = json.load(f)
-                        metrics_chart_fig = go.Figure(metrics_chart_data)
-
-                    risk_chart_path = self.current_session_dir / "chart_risk_categories.json"
-                    if risk_chart_path.exists():
-                        with open(risk_chart_path, 'r') as f:
-                            risk_chart_data = json.load(f)
-                        risk_chart_fig = go.Figure(risk_chart_data)
+                # Balance Sheet chart (NEW)
+                balance_sheet_path = self.current_session_dir / "chart_balance_sheet.json"
+                if balance_sheet_path.exists():
+                    with open(balance_sheet_path, 'r') as f:
+                        balance_sheet_data = json.load(f)
+                    risk_chart_fig = go.Figure(balance_sheet_data)  # Use risk_chart_fig slot
             except Exception as chart_error:
                 # Don't fail the whole analysis if chart generation fails
-                print(f"Warning: Failed to auto-generate charts: {chart_error}")
+                # Silently skip charts - they're optional enhancement, not core functionality
+                pass  # Charts will remain None, which is handled gracefully by Gradio
 
             progress(1.0, desc="Complete!")
 
@@ -630,14 +632,29 @@ class WebApp:
                 reports.get('financial_analysis', ''),
                 reports.get('risk_analysis', ''),
                 reports.get('verification', ''),
+                reports.get('search_results', '*Search results not available for this analysis*'),
+                reports.get('edgar_filings', '*EDGAR filings data not available for this analysis*'),
                 margin_chart_fig,
                 metrics_chart_fig,
                 risk_chart_fig
             )
 
         except Exception as e:
-            error_msg = f"❌ Error during analysis:\n\n{str(e)}"
-            yield (error_msg, "", "", "", "", "", "", None, None, None)
+            import traceback
+            error_details = traceback.format_exc()
+            error_msg = f"""❌ Error during analysis:
+
+**Error:** {str(e)}
+
+**Details:** See console for full traceback.
+
+If this error persists, please check:
+1. API keys are correctly set
+2. Internet connection is available
+3. SEC EDGAR is accessible
+"""
+            print(f"\n{'='*60}\nERROR IN ANALYSIS:\n{'='*60}\n{error_details}\n{'='*60}\n")
+            yield (error_msg, "", "", "", "", "", "", "", "", None, None, None)
 
     def _load_reports(self) -> dict[str, str]:
         """Load generated markdown reports from session directory."""
@@ -654,6 +671,8 @@ class WebApp:
             'financial_analysis': '05_financial_analysis.md',
             'risk_analysis': '06_risk_analysis.md',
             'verification': '08_verification.md',
+            'search_results': '02_search_results.md',
+            'edgar_filings': '02_edgar_filings.md',
         }
 
         for key, filename in report_files.items():
@@ -828,13 +847,16 @@ The following companies are not yet in the knowledge base:
             if hist.empty:
                 return None, "", f"No data found for ticker '{ticker}'. Please check the symbol and try again."
 
-            # Get company name
+            # Get company name and currency
             try:
                 company_name = stock.info.get('longName', ticker)
                 if not company_name or company_name == ticker:
                     company_name = stock.info.get('shortName', ticker)
+                # Get currency from stock info
+                currency = stock.info.get('currency', 'USD')
             except:
                 company_name = ticker
+                currency = 'USD'
 
             # Create figure with secondary y-axis
             fig = make_subplots(
@@ -871,7 +893,7 @@ The following companies are not yet in the knowledge base:
             fig.update_layout(
                 title=f'{ticker} - {period.upper()} Performance',
                 xaxis_title='',
-                yaxis_title='Price (USD)',
+                yaxis_title=f'Price ({currency})',
                 yaxis2_title='Volume',
                 hovermode='x unified',
                 template='plotly_white',
@@ -894,14 +916,16 @@ The following companies are not yet in the knowledge base:
             low_52w = hist['Low'].min()
             avg_volume = hist['Volume'].mean()
 
-            # Format statistics
+            # Format statistics with proper currency symbol
+            currency_symbol = {'USD': '$', 'AUD': 'A$', 'EUR': '€', 'GBP': '£', 'JPY': '¥', 'CAD': 'C$'}.get(currency, currency + ' ')
+
             stats_md = f"""
 ### Stock Statistics ({period.upper()})
 
-**Current Price:** ${current_price:.2f}
-**Change:** ${change:+.2f} ({change_pct:+.2f}%)
-**52-Week High:** ${high_52w:.2f}
-**52-Week Low:** ${low_52w:.2f}
+**Current Price:** {currency_symbol}{current_price:.2f}
+**Change:** {currency_symbol}{change:+.2f} ({change_pct:+.2f}%)
+**52-Week High:** {currency_symbol}{high_52w:.2f}
+**52-Week Low:** {currency_symbol}{low_52w:.2f}
 **Avg Volume:** {avg_volume:,.0f}
 
 *Data Source: Yahoo Finance*
@@ -1592,7 +1616,7 @@ The following companies are not yet in the knowledge base:
                         with gr.Tab("💡 Analysis", id=4):
                             gr.Markdown(
                                 """
-                                ## Specialist Financial Analysis (800-1200 words)
+                                ## Specialist Financial Analysis
                                 *In-depth analysis of financial performance, trends, and key metrics
                                 by the Financial Analyst agent with direct access to SEC EDGAR data*
                                 """
@@ -1607,11 +1631,11 @@ The following companies are not yet in the knowledge base:
 
                             with gr.Row():
                                 margin_chart = gr.Plot(
-                                    label="Profitability Margins",
+                                    label="Revenue & Profitability Trends",
                                     visible=True
                                 )
                                 metrics_chart = gr.Plot(
-                                    label="Key Financial Metrics",
+                                    label="Margin Trends",
                                     visible=True
                                 )
 
@@ -1631,7 +1655,7 @@ The following companies are not yet in the knowledge base:
                         with gr.Tab("⚠️ Risks", id=5):
                             gr.Markdown(
                                 """
-                                ## Specialist Risk Assessment (800-1200 words)
+                                ## Specialist Risk Assessment
                                 *Comprehensive risk analysis prioritizing 10-K Item 1A Risk Factors
                                 by the Risk Analyst agent with access to annual and quarterly SEC filings*
                                 """
@@ -1643,7 +1667,7 @@ The following companies are not yet in the knowledge base:
 
                             with gr.Row():
                                 risk_chart = gr.Plot(
-                                    label="Risk Category Breakdown (Keyword-based Analysis)",
+                                    label="Balance Sheet Composition",
                                     visible=True
                                 )
 

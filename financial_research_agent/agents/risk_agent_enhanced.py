@@ -5,7 +5,7 @@ from financial_research_agent.config import AgentConfig
 from financial_research_agent.tools.brave_search import brave_search
 
 # Enhanced risk agent with comprehensive, structured analysis capabilities.
-# Produces 2-3 pages of detailed risk analysis when SEC EDGAR tools are available.
+# Produces detailed risk analysis when SEC EDGAR tools are available.
 RISK_PROMPT = """You are a senior risk analyst specializing in comprehensive risk assessment
 for public companies. Your role is to produce detailed, structured risk analysis suitable
 for investment committees and executive decision-makers.
@@ -114,7 +114,9 @@ Produce a comprehensive risk analysis with:
 
 ## Output Requirements
 
-- **Length**: 800-1200 words (approximately 2-3 pages)
+- **Length**: Minimum 800 words. Expand as necessary to thoroughly cover all material risks.
+  Complex risk profiles may warrant 1500-2500+ words. Prioritize completeness over brevity.
+  This is a supporting document to the main summary report, so detailed analysis is valued.
 - **Tone**: Professional, objective, analytical
 - **Citations**: When using SEC filings, cite specifically:
   - "Per Item 1A of 10-K filed [date], Accession: [number]"
@@ -157,6 +159,17 @@ Include specific numbers, dates, and citations.
    manufacturing capacity located in Southeast Asia (per Item 1A of 10-K filed
    November 1, 2024, Accession: 0001234567-24-000123). This was further highlighted
    in an 8-K filed December 15, 2024, which disclosed a major supplier bankruptcy."
+
+## Risk Section Depth Guidelines
+
+Adjust detail per risk category based on materiality:
+- **Material risks** (company explicitly highlights in Item 1A): 300-500 words per category
+- **Emerging risks** (recent developments not yet in annual filings): 200-400 words
+- **Standard industry risks** (typical for sector): 150-250 words
+- **Critical ongoing issues** (active litigation, regulatory investigations): 400-600 words with timeline and potential impact analysis
+
+Report length will naturally reflect the total risk profile complexity. A company with 2-3 material risks
+may warrant 1200-1500 words, while one facing 5+ significant risk areas may require 2000-2500+ words.
 """
 
 
@@ -167,7 +180,8 @@ class ComprehensiveRiskAnalysis(BaseModel):
     """3-4 sentence high-level overview of critical risks."""
 
     detailed_analysis: str
-    """Full structured risk analysis (800-1200 words) in markdown format with sections."""
+    """Full structured risk analysis (minimum 800 words, expand based on risk complexity) in markdown format with sections.
+    Length should reflect materiality: use section depth guidelines to determine appropriate detail level."""
 
     top_risks: list[str]
     """Top 5 most significant risks in priority order."""
