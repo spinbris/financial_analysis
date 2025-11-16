@@ -161,8 +161,9 @@ class EnhancedFinancialResearchManager:
                 pass
 
     async def run(self, query: str, ticker: str | None = None) -> None:
-        # Store ticker for use by other methods
-        self.ticker = ticker
+        # Normalize ticker to ADR if applicable (e.g., NAB -> NABZY)
+        from financial_research_agent.utils.sector_detection import normalize_ticker
+        self.ticker = normalize_ticker(ticker) if ticker else None
 
         # Create timestamped session directory
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -213,8 +214,12 @@ class EnhancedFinancialResearchManager:
 
                     # If banking sector, gather regulatory ratios (TIER 1)
                     banking_ratios_result = None
-                    if self.ticker:
-                        sector = detect_industry_sector(self.ticker)
+                    if self.ticker and metrics_results:
+                        # Get SIC code and company name for intelligent sector detection
+                        # metrics_results is a FinancialMetrics Pydantic model, not a dict
+                        sic_code = getattr(metrics_results, 'sic_code', None)
+                        company_name = getattr(metrics_results, 'company_name', None)
+                        sector = detect_industry_sector(self.ticker, sic_code=sic_code, company_name=company_name)
                         if should_analyze_banking_ratios(sector):
                             self._report_progress(0.48, "Extracting banking regulatory ratios...")
                             banking_ratios_result = await self._gather_banking_ratios(self.ticker, sector)
@@ -868,6 +873,7 @@ Use get_company_facts to get ALL available XBRL data."""
                     "ticker": statements_data.get('ticker', lookup_key),
                     "company_name": company_name,
                     "cik": statements_data.get('cik'),
+                    "sic_code": statements_data.get('sic_code'),
                     "form_type": statements_data.get('form_type'),
                     "fiscal_year_end": statements_data.get('fiscal_year_end'),
                     "filing_date": statements_data.get('filing_date'),

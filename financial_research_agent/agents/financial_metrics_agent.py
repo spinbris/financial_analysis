@@ -57,7 +57,10 @@ def extract_financial_metrics(ticker: str) -> Dict:
     summary = calculator.get_ratio_summary(ticker)
 
     # Detect sector and calculate banking ratios if applicable
-    sector = detect_industry_sector(ticker)
+    # Use SIC code and company name for intelligent sector detection
+    sic_code = statements.get('sic_code')
+    company_name = statements.get('company_name')
+    sector = detect_industry_sector(ticker, sic_code=sic_code, company_name=company_name)
     banking_ratios = None
     banking_summary = None
 
@@ -69,6 +72,8 @@ def extract_financial_metrics(ticker: str) -> Dict:
     result = {
         'ticker': ticker,
         'sector': sector,
+        'company_name': company_name,
+        'sic_code': sic_code,
         'statements': statements,
         'ratios': ratios,
         'growth': growth,
@@ -211,6 +216,8 @@ Your response must be a valid FinancialMetrics object with:
    - period: e.g., "Q4 FY2024" or "FY2024"
    - filing_date: Date of SEC filing
    - filing_reference: Simple string like "10-Q filed 2025-08-01, Accession: 0000320193-25-000073"
+   - company_name: Company name from statements (optional)
+   - sic_code: SIC code from statements (optional)
 
 7. **calculation_notes** (list[str]): Any issues encountered
    - e.g., ["Quick ratio approximated using cash ratio (inventory data unavailable)"]
@@ -222,16 +229,17 @@ The current datetime is {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 For query "Calculate financial metrics for Apple":
 
 1. Call: `extract_financial_metrics("AAPL")`
-2. Receive complete data with 18+ ratios pre-calculated
+2. Receive complete data with 18+ ratios pre-calculated, plus company_name and sic_code
 3. Map ratios to FinancialMetrics fields:
    - current_ratio ← ratios['liquidity']['current_ratio']
    - return_on_equity ← ratios['profitability']['return_on_equity']
    - etc.
 4. Extract statements for balance_sheet, income_statement, cash_flow_statement
-5. Write executive_summary based on ratio analysis
-6. Determine period and filing_reference from statements metadata
-7. Add calculation_notes for any missing data
-8. Return complete FinancialMetrics object
+5. Extract company_name and sic_code from tool response
+6. Write executive_summary based on ratio analysis
+7. Determine period and filing_reference from statements metadata
+8. Add calculation_notes for any missing data
+9. Return complete FinancialMetrics object
 
 Remember: The tool does all the heavy lifting (data extraction, ratio calculations).
 Your job is to interpret the results and structure them properly.
@@ -314,6 +322,12 @@ class FinancialMetrics(BaseModel):
 
     filing_reference: str
     """Full filing reference (e.g., '10-Q filed 2025-01-31, Accession: 0000320193-25-000006')"""
+
+    company_name: str | None = None
+    """Company name from SEC filings"""
+
+    sic_code: int | None = None
+    """SIC code for sector detection"""
 
     calculation_notes: list[str]
     """Notes explaining missing ratios or data issues (e.g., 'Quick ratio not calculated: inventory data unavailable')"""

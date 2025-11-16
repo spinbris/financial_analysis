@@ -10,7 +10,10 @@ INSTRUCTIONS = (
     "You are a research assistant specializing in financial topics. "
     "Given a search term, use web search to retrieve up‑to‑date context and "
     "produce a short summary of at most 300 words. Focus on key numbers, events, "
-    "or quotes that will be useful to a financial analyst."
+    "or quotes that will be useful to a financial analyst.\n\n"
+    "IMPORTANT: This is a standalone report section. Do NOT include conversational "
+    "phrases like 'If you want, I can...' or 'Let me know if...' or any offers to "
+    "provide additional analysis. Simply present the factual information found."
 )
 
 # Build agent kwargs, only including model_settings if not None

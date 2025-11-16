@@ -111,6 +111,14 @@ def extract_tickers_from_query(query: str) -> list[str]:
         "lyft": "LYFT",
         "doordash": "DASH",
         "spotify": "SPOT",
+        # Australian Banks (map to ADR tickers for SEC filings)
+        "national australia bank": "NABZY",
+        "nab": "NABZY",
+        "anz": "ANZLY",
+        "anz bank": "ANZLY",
+        "westpac": "WBKCY",
+        "commonwealth bank": "CMWAY",
+        "cba": "CMWAY",
     }
 
     query_lower = query.lower()
@@ -140,7 +148,11 @@ def extract_tickers_from_query(query: str) -> list[str]:
     }
     filtered_tickers = [t for t in all_tickers if t not in false_positives]
 
-    return filtered_tickers
+    # Normalize to ADR tickers for international companies
+    from financial_research_agent.utils.sector_detection import normalize_ticker
+    normalized_tickers = [normalize_ticker(t) for t in filtered_tickers]
+
+    return normalized_tickers
 
 
 def format_analysis_age(timestamp: str) -> dict:

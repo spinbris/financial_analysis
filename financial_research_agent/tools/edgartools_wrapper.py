@@ -37,6 +37,7 @@ class EdgarToolsWrapper:
                 'ticker': ticker,
                 'company_name': company.name,
                 'cik': company.cik,
+                'sic_code': getattr(company, 'sic_code', None),  # SIC code for sector detection
             }
         }
     
@@ -189,11 +190,18 @@ class EdgarToolsWrapper:
         """
         Get all financial data in format compatible with your current pipeline.
         """
+        # Get company metadata first
+        from edgar import Company
+        company = Company(ticker)
+
         return {
             'balance_sheet': self.get_balance_sheet_data(ticker),
             'income_statement': self.get_income_statement_data(ticker),
             'cashflow': self.get_cashflow_data(ticker),
             'ticker': ticker,
+            'company_name': company.name,
+            'sic_code': getattr(company, 'sic_code', None),
+            'cik': company.cik,
         }
     
     def verify_balance_sheet_equation(self, ticker: str, tolerance: float = 0.001) -> Dict:

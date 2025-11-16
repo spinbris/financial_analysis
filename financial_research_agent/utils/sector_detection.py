@@ -23,7 +23,23 @@ COMMERCIAL_BANKS = {
     'RY', 'TD', 'BNS', 'BMO', 'CM',  # Canadian Big 5
     'BCS', 'DB', 'UBS', 'SAN', 'BBVA', 'ISP',  # European
     'MFG', 'SMFG', 'MUFG',  # Japanese
+    'NABZY', 'ANZLY', 'WBKCY', 'CMWAY',  # Australian Big 4 (ADR tickers)
+    'SBKFF', 'STAN',  # South African
+    'HDB', 'ICICIBC',  # Indian
     'WBK', 'ITUB', 'BBD',  # Other international
+}
+
+# ADR ticker mappings for common international banks
+# Maps local ticker to SEC ADR ticker
+ADR_TICKER_MAP = {
+    # Australian Big 4
+    'NAB': 'NABZY',
+    'ANZ': 'ANZLY',
+    'WBC': 'WBKCY',
+    'CBA': 'CMWAY',
+    # UK
+    'STAN': 'SCBFF',
+    # Can add more as needed
 }
 
 INVESTMENT_BANKS = {
@@ -67,33 +83,43 @@ REIT_SIC_CODES = {
 }
 
 
-def detect_industry_sector(ticker: str, sic_code: int = None) -> IndustrySector:
+def normalize_ticker(ticker: str) -> str:
+    """
+    Normalize ticker to SEC ADR ticker if applicable.
+
+    Handles cases where users enter local exchange tickers (e.g., 'NAB')
+    and converts them to SEC ADR tickers (e.g., 'NABZY').
+
+    Args:
+        ticker: Stock ticker symbol
+
+    Returns:
+        Normalized ticker (ADR if mapping exists, otherwise original)
+    """
+    ticker = ticker.upper().strip()
+    return ADR_TICKER_MAP.get(ticker, ticker)
+
+
+def detect_industry_sector(ticker: str, sic_code: int = None, company_name: str = None) -> IndustrySector:
     """
     Detect the industry sector for a given company.
+
+    Detection hierarchy:
+    1. SIC code (most authoritative - from SEC filings)
+    2. Company name keywords (catches international banks)
+    3. Ticker-based lookup (fallback for known companies)
 
     Args:
         ticker: Stock ticker symbol
         sic_code: Optional SIC code from SEC filings
+        company_name: Optional company name for keyword matching
 
     Returns:
         Industry sector classification
     """
     ticker = ticker.upper().strip()
 
-    # Method 1: Ticker-based lookup (fastest, most reliable)
-    if ticker in COMMERCIAL_BANKS:
-        return 'banking'
-
-    if ticker in INVESTMENT_BANKS or ticker in ASSET_MANAGERS:
-        return 'investment_banking'
-
-    if ticker in INSURANCE_COMPANIES:
-        return 'insurance'
-
-    if ticker in REITS:
-        return 'reit'
-
-    # Method 2: SIC code lookup (if provided)
+    # Method 1: SIC code lookup (PREFERRED - most authoritative)
     if sic_code:
         if sic_code in BANKING_SIC_CODES:
             return 'banking'
@@ -106,6 +132,68 @@ def detect_industry_sector(ticker: str, sic_code: int = None) -> IndustrySector:
 
         if sic_code in REIT_SIC_CODES:
             return 'reit'
+
+    # Method 2: Company name keyword matching (catches international banks)
+    if company_name:
+        company_lower = company_name.lower()
+
+        # Banking keywords (English + international)
+        banking_keywords = [
+            'bank', 'bancorp', 'banc ', 'banking', 'bankshares',
+            'trust', 'financial corp', 'financial group',
+            'savings', 'credit union', 'fsb', 'national association',
+            # International banking keywords
+            'banco',  # Spanish/Portuguese
+            'banque',  # French
+            'banca',  # Italian
+            'banc',  # Catalan/Romanian
+            'sparkasse',  # German savings bank
+            'raiffeisen',  # German cooperative bank
+            'volksbank',  # German people's bank
+        ]
+
+        # Exclude false positives (companies with "bank" but aren't banks)
+        exclude_banking = ['food bank', 'blood bank', 'gene bank', 'data bank']
+
+        if any(kw in company_lower for kw in banking_keywords):
+            if not any(excl in company_lower for excl in exclude_banking):
+                return 'banking'
+
+        # Insurance keywords
+        insurance_keywords = [
+            'insurance', 'assurance', 'life', 'casualty', 'indemnity',
+            'underwriters', 'reinsurance', 'mutual'
+        ]
+        if any(kw in company_lower for kw in insurance_keywords):
+            return 'insurance'
+
+        # REIT keywords
+        reit_keywords = [
+            'reit', 'real estate investment', 'properties', 'realty trust'
+        ]
+        if any(kw in company_lower for kw in reit_keywords):
+            return 'reit'
+
+        # Investment banking keywords
+        investment_keywords = [
+            'asset management', 'investment', 'capital management',
+            'securities', 'broker', 'wealth management'
+        ]
+        if any(kw in company_lower for kw in investment_keywords):
+            return 'investment_banking'
+
+    # Method 3: Ticker-based lookup (fallback for edge cases)
+    if ticker in COMMERCIAL_BANKS:
+        return 'banking'
+
+    if ticker in INVESTMENT_BANKS or ticker in ASSET_MANAGERS:
+        return 'investment_banking'
+
+    if ticker in INSURANCE_COMPANIES:
+        return 'insurance'
+
+    if ticker in REITS:
+        return 'reit'
 
     # Default: general company
     return 'general'
@@ -149,6 +237,14 @@ def get_peer_group(ticker: str, sector: IndustrySector) -> str:
         # European G-SIBs
         if ticker in {'HSBC', 'BCS', 'DB', 'UBS', 'SAN', 'BBVA'}:
             return 'European G-SIB'
+
+        # Australian Big 4 (both local and ADR tickers)
+        if ticker in {'NAB', 'ANZ', 'WBC', 'CBA', 'NABZY', 'ANZLY', 'WBKCY', 'CMWAY'}:
+            return 'Australian Big 4'
+
+        # Other International Banks
+        if ticker in {'SBKFF', 'STAN', 'HDB', 'ICICIBC'}:
+            return 'International Bank'
 
         # Credit Card Banks
         if ticker in {'AXP', 'DFS', 'SYF'}:

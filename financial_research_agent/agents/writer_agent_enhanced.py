@@ -145,10 +145,17 @@ Produce a **comprehensive research report** (3-5 pages, approximately 1500-2500 
   - "Market commentary suggests..."
 - **Data precision**: Use exact figures when from SEC filings
 - **Balance**: Acknowledge both strengths and concerns
-- **IMPORTANT - Markdown Formatting**: DO NOT use tilde (~) for "approximately" as it renders as strikethrough in some markdown viewers. Instead use:
-  - "approximately" or "approx." (e.g., "approximately $1.9bn" not "~$1.9bn")
-  - "around" (e.g., "around 14%" not "~14%")
-  - "about" (e.g., "about 5 bps" not "~5 bps")
+
+### 🚨 CRITICAL FORMATTING RULE - NEVER USE TILDE (~)
+
+**NEVER use the tilde character (~) anywhere in your report.** The tilde character causes markdown rendering issues (strikethrough formatting). Instead:
+
+- Write "approximately $1.9 billion" NOT "~$1.9B" or "~$1.9bn"
+- Write "around 14%" NOT "~14%"
+- Write "about 5 basis points" NOT "~5 bps"
+- Write "+8% year-over-year" NOT "+~8% YoY"
+
+This applies to ALL numeric approximations throughout the entire report.
 
 ### 7. Example Integration
 
