@@ -276,18 +276,26 @@ class FinancialRAGManager:
         Returns:
             Query results with documents, metadatas, and distances
         """
-        # Build where filter
-        where_filter = {}
-        if ticker:
-            where_filter["ticker"] = ticker.upper()
-        if analysis_type:
-            where_filter["analysis_type"] = analysis_type
+        # Build where filter - use $and when multiple conditions
+        where_filter = None
+        if ticker and analysis_type:
+            # Multiple conditions - use $and operator
+            where_filter = {
+                "$and": [
+                    {"ticker": ticker.upper()},
+                    {"analysis_type": analysis_type}
+                ]
+            }
+        elif ticker:
+            where_filter = {"ticker": ticker.upper()}
+        elif analysis_type:
+            where_filter = {"analysis_type": analysis_type}
 
         # Query ChromaDB
         results = self.collection.query(
             query_texts=[query],
             n_results=n_results,
-            where=where_filter if where_filter else None
+            where=where_filter
         )
 
         return results

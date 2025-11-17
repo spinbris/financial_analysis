@@ -48,8 +48,8 @@ KB_QUERY_EXAMPLES = [
     "Compare Microsoft and Google's cloud strategies",
     "What are Tesla's key financial risks?",
     "How has Amazon's profitability changed over time?",
-    "What is NVIDIA's debt-to-equity ratio?",
-    "Compare profit margins across tech companies",
+    "Compare AI spend among AAPL, MSFT, GOOGL, META, NVDA",
+    "Compare profit margins for Apple, Microsoft, Nvidia, Meta, Tesla",
 ]
 
 
@@ -331,17 +331,105 @@ class WebApp:
             ticker = ticker_filter.strip().upper() if ticker_filter else None
             analysis_type_val = analysis_type if analysis_type else None
 
-            # Query with synthesis - this returns a structured RAGResponse
-            yield "🤖 Synthesizing answer from sources..."
-            response = rag.query_with_synthesis(
-                query=query,
-                ticker=ticker,
-                analysis_type=analysis_type_val,
-                n_results=num_results
-            )
+            # Multi-company comparison strategy: If multiple tickers detected and no explicit filter,
+            # query each company separately to ensure balanced representation
+            if not ticker and detected_tickers and len(detected_tickers) >= 2:
+                # Per-company strategy for fair comparison
+                yield "🤖 Querying each company separately for balanced comparison..."
+
+                # Query each ticker separately with fewer results per company
+                results_per_company = max(3, num_results // len(detected_tickers))
+                combined_results = {
+                    'documents': [[]],
+                    'metadatas': [[]],
+                    'distances': [[]]
+                }
+
+                # For numerical comparison queries, prioritize financial_metrics
+                query_lower = query.lower()
+                numerical_keywords = ['margin', 'ratio', 'revenue', 'profit', 'income', 'earnings',
+                                     'cash', 'debt', 'equity', 'assets', 'compare']
+                prefer_metrics = any(keyword in query_lower for keyword in numerical_keywords)
+
+                for ticker_symbol in detected_tickers:
+                    # If this is a numerical comparison, first try to get financial_metrics
+                    if prefer_metrics and not analysis_type_val:
+                        metrics_results = rag.query(
+                            query=query,
+                            ticker=ticker_symbol,
+                            analysis_type='financial_metrics',
+                            n_results=2
+                        )
+                        # Get one more general result for context
+                        general_results = rag.query(
+                            query=query,
+                            ticker=ticker_symbol,
+                            analysis_type=None,
+                            n_results=1
+                        )
+
+                        # Combine metrics + general
+                        if metrics_results and 'documents' in metrics_results:
+                            combined_results['documents'][0].extend(metrics_results['documents'][0])
+                            combined_results['metadatas'][0].extend(metrics_results['metadatas'][0])
+                            combined_results['distances'][0].extend(metrics_results['distances'][0])
+                        if general_results and 'documents' in general_results:
+                            combined_results['documents'][0].extend(general_results['documents'][0])
+                            combined_results['metadatas'][0].extend(general_results['metadatas'][0])
+                            combined_results['distances'][0].extend(general_results['distances'][0])
+                    else:
+                        # Standard query
+                        company_results = rag.query(
+                            query=query,
+                            ticker=ticker_symbol,
+                            analysis_type=analysis_type_val,
+                            n_results=results_per_company
+                        )
+
+                        # Combine results
+                        if company_results and 'documents' in company_results:
+                            combined_results['documents'][0].extend(company_results['documents'][0])
+                            combined_results['metadatas'][0].extend(company_results['metadatas'][0])
+                            combined_results['distances'][0].extend(company_results['distances'][0])
+
+                # Check if we need to supplement with web search
+                web_search_used = []
+                web_search_errors = []
+                if self._should_use_web_search(query, combined_results, detected_tickers):
+                    yield "🌐 Supplementing with web search for recent data..."
+                    web_search_used, web_search_errors = self._supplement_with_web_search(
+                        query, combined_results, detected_tickers
+                    )
+
+                # Synthesize the combined results
+                from financial_research_agent.rag.synthesis_agent import synthesize_rag_results
+                yield "🤖 Synthesizing answer from sources..."
+                # Use higher max_turns (10) when web search is enabled to allow for tool calls
+                # Standard synthesis (3 turns) is too low when agent needs to call web search
+                response = synthesize_rag_results(query, combined_results, max_turns=10)
+            else:
+                # Single company or explicit filter - use standard query
+                yield "🤖 Synthesizing answer from sources..."
+                response = rag.query_with_synthesis(
+                    query=query,
+                    ticker=ticker,
+                    analysis_type=analysis_type_val,
+                    n_results=num_results
+                )
 
             # Format synthesized response as markdown
             output = f"# 💡 Answer\n\n"
+
+            # Add web search notification if used
+            if 'web_search_used' in locals() and web_search_used:
+                output += f"ℹ️ *Supplemented with web search for: {', '.join(web_search_used)}*\n\n"
+
+            # Add web search errors if any
+            if 'web_search_errors' in locals() and web_search_errors:
+                output += f"⚠️ **Web search issues:**\n"
+                for error in web_search_errors:
+                    output += f"  - {error}\n"
+                output += "\n"
 
             # Add filter context
             if ticker or analysis_type_val:
@@ -395,6 +483,220 @@ class WebApp:
             import traceback
             error_detail = traceback.format_exc()
             yield f"### ❌ Error\n\nFailed to query knowledge base:\n\n```\n{str(e)}\n```\n\n<details>\n<summary>Full Error Details</summary>\n\n```\n{error_detail}\n```\n</details>"
+
+    def _should_use_web_search(
+        self,
+        query: str,
+        kb_results: dict,
+        detected_tickers: list[str]
+    ) -> bool:
+        """
+        Determine if web search should be used to supplement KB results.
+
+        Args:
+            query: User's query string
+            kb_results: ChromaDB results with documents, metadatas, distances
+            detected_tickers: List of tickers detected in query
+
+        Returns:
+            True if web search should be triggered
+        """
+        # Time-sensitive keywords that suggest we need recent data
+        time_sensitive_keywords = [
+            'current', 'latest', 'recent', '2024', '2025', 'spend', 'spending',
+            'capex', 'investment', 'ai', 'guidance', 'forecast'
+        ]
+        query_lower = query.lower()
+        is_time_sensitive = any(keyword in query_lower for keyword in time_sensitive_keywords)
+
+        # Check if KB results are sparse
+        total_chunks = len(kb_results.get('documents', [[]])[0])
+        expected_chunks = len(detected_tickers) * 2  # Expect at least 2 chunks per company
+        is_sparse = total_chunks < expected_chunks
+
+        # Use web search if query is time-sensitive OR results are sparse
+        return is_time_sensitive or is_sparse
+
+    def _supplement_with_web_search(
+        self,
+        query: str,
+        kb_results: dict,
+        detected_tickers: list[str]
+    ) -> tuple[list[str], list[str]]:
+        """
+        Supplement KB results with web search data.
+
+        Args:
+            query: User's original query
+            kb_results: Existing KB results to supplement (modified in-place)
+            detected_tickers: List of tickers to search for
+
+        Returns:
+            Tuple of (successful_tickers, error_messages)
+        """
+        from datetime import datetime
+        import asyncio
+        import httpx
+        import os
+        import traceback
+
+        web_search_tickers = []
+        error_messages = []
+
+        # Extract topic from query (remove company names and common words)
+        topic_words = []
+        skip_words = {'compare', 'what', 'how', 'is', 'are', 'the', 'and', 'or', 'among', 'across'}
+        for word in query.lower().split():
+            if (word not in skip_words and
+                len(word) > 2 and
+                not any(ticker.lower() in word for ticker in detected_tickers)):
+                topic_words.append(word)
+        topic = ' '.join(topic_words[:5])  # Limit to 5 most relevant words
+
+        # Helper to run async search with retry logic
+        async def search_ticker(ticker: str, semaphore: asyncio.Semaphore):
+            async with semaphore:  # Limit concurrent requests
+                max_retries = 3
+
+                for attempt in range(max_retries):
+                    try:
+                        # Build search query: "TICKER topic 2024 2025"
+                        search_query = f"{ticker} {topic} 2024 2025"
+
+                        # Call Brave Search API directly
+                        api_key = os.getenv("BRAVE_API_KEY")
+                        if not api_key:
+                            error_msg = f"{ticker}: No BRAVE_API_KEY configured"
+                            error_messages.append(error_msg)
+                            return ("error", ticker, error_msg)
+
+                        headers = {
+                            "Accept": "application/json",
+                            "Accept-Encoding": "gzip",
+                            "X-Subscription-Token": api_key
+                        }
+
+                        params = {
+                            "q": search_query,
+                            "count": 2,
+                            "text_decorations": False,
+                            "search_lang": "en",
+                            "result_filter": "web"
+                        }
+
+                        async with httpx.AsyncClient(timeout=30.0) as client:
+                            response = await client.get(
+                                "https://api.search.brave.com/res/v1/web/search",
+                                headers=headers,
+                                params=params,
+                                follow_redirects=True
+                            )
+                            response.raise_for_status()
+                            data = response.json()
+
+                            # Extract results
+                            web_results = data.get("web", {}).get("results", [])
+
+                            if not web_results:
+                                error_msg = f"{ticker}: No web results found for '{search_query}'"
+                                error_messages.append(error_msg)
+                                return ("error", ticker, error_msg)
+
+                            # Add small delay between successful requests to avoid rate limits
+                            await asyncio.sleep(0.5)
+                            return ("success", ticker, web_results[:2])
+
+                    except httpx.HTTPStatusError as e:
+                        if e.response.status_code == 429:
+                            # Rate limit - retry with exponential backoff
+                            if attempt < max_retries - 1:
+                                backoff_delay = 2 ** attempt  # 1s, 2s, 4s
+                                error_msg = f"{ticker}: HTTP 429 rate limit (attempt {attempt + 1}/{max_retries}), retrying in {backoff_delay}s..."
+                                await asyncio.sleep(backoff_delay)
+                                continue
+                            else:
+                                error_msg = f"{ticker}: HTTP 429 rate limit exceeded after {max_retries} attempts"
+                                error_messages.append(error_msg)
+                                return ("error", ticker, error_msg)
+                        else:
+                            error_msg = f"{ticker}: HTTP {e.response.status_code} - {str(e)}"
+                            error_messages.append(error_msg)
+                            return ("error", ticker, error_msg)
+
+                    except httpx.TimeoutException as e:
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(1)
+                            continue
+                        error_msg = f"{ticker}: Request timeout after {max_retries} attempts"
+                        error_messages.append(error_msg)
+                        return ("error", ticker, error_msg)
+
+                    except Exception as e:
+                        error_msg = f"{ticker}: {type(e).__name__}: {str(e)}"
+                        error_messages.append(error_msg)
+                        return ("error", ticker, error_msg)
+
+        # Run searches for all tickers with concurrency limit
+        async def search_all():
+            # Limit to 2 concurrent searches to avoid rate limits
+            semaphore = asyncio.Semaphore(2)
+            tasks = [search_ticker(ticker, semaphore) for ticker in detected_tickers]
+            return await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Execute searches
+        try:
+            results = asyncio.run(search_all())
+
+            for result in results:
+                # Handle exceptions caught by gather
+                if isinstance(result, Exception):
+                    error_msg = f"Unknown ticker: {type(result).__name__}: {str(result)}"
+                    error_messages.append(error_msg)
+                    continue
+
+                # Unpack the tuple (status, ticker, data)
+                if not isinstance(result, tuple) or len(result) != 3:
+                    error_msg = f"Invalid result format: {result}"
+                    error_messages.append(error_msg)
+                    continue
+
+                status, ticker, data = result
+
+                if status == "success":
+                    # data is a list of web results
+                    if not isinstance(data, list):
+                        error_msg = f"{ticker}: Expected list of web results, got {type(data)}"
+                        error_messages.append(error_msg)
+                        continue
+
+                    # Add search results as synthetic KB chunks
+                    for web_result in data:
+                        # Extract title and description
+                        title = web_result.get('title', '')
+                        description = web_result.get('description', '')
+                        content = f"{title}\n\n{description}"
+
+                        # Add to KB results
+                        kb_results['documents'][0].append(content)
+                        kb_results['metadatas'][0].append({
+                            'ticker': ticker,
+                            'analysis_type': 'web_search',
+                            'source': 'Brave Search',
+                            'url': web_result.get('url', ''),
+                            'date': datetime.now().strftime('%Y-%m-%d'),
+                            'section': f'Web Search: {topic}'
+                        })
+                        kb_results['distances'][0].append(0.0)  # Treat as highly relevant
+
+                    web_search_tickers.append(ticker)
+                # Errors already recorded in error_messages
+
+        except Exception as e:
+            # Catch-all for asyncio.run failures
+            error_msg = f"Web search system error: {type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
+            error_messages.append(error_msg)
+
+        return web_search_tickers, error_messages
 
     def _extract_ticker_from_query(self, query: str) -> str | None:
         """
@@ -1926,13 +2228,36 @@ The following companies are not yet in the knowledge base:
 
             # Knowledge base search button - using defaults for removed filters
             # Note: query_knowledge_base is a generator, so we need to consume it
-            def kb_search_handler(query):
-                """Wrapper to consume the generator and return final result."""
-                result_parts = []
-                for chunk in self.query_knowledge_base(query, "", "", 10):
-                    result_parts.append(chunk)
-                # Return the last (final) result which contains the complete output
-                return result_parts[-1] if result_parts else "No results"
+            def kb_search_handler(query, progress=gr.Progress()):
+                """Wrapper to consume the generator and return final result with progress tracking."""
+                try:
+                    result_parts = []
+
+                    # Map progress messages to completion percentages
+                    progress_map = {
+                        "🔍 Analyzing query...": (0.25, "Analyzing query"),
+                        "🔍 Searching knowledge base...": (0.50, "Searching knowledge base"),
+                        "🤖 Querying each company separately for balanced comparison...": (0.60, "Querying companies"),
+                        "🤖 Synthesizing answer from sources...": (0.75, "Synthesizing answer"),
+                    }
+
+                    for chunk in self.query_knowledge_base(query, "", "", 10):
+                        result_parts.append(chunk)
+
+                        # Update progress if this is a known progress message
+                        if chunk in progress_map:
+                            pct, desc = progress_map[chunk]
+                            progress(pct, desc=desc)
+
+                    # Mark as complete
+                    progress(1.0, desc="Complete")
+
+                    # Return the last (final) result which contains the complete output
+                    return result_parts[-1] if result_parts else "No results"
+                except Exception as e:
+                    import traceback
+                    error_detail = traceback.format_exc()
+                    return f"### ❌ Error\n\nFailed to query knowledge base:\n\n```\n{str(e)}\n```\n\n<details>\n<summary>Full Error Details</summary>\n\n```\n{error_detail}\n```\n</details>"
 
             kb_search_btn.click(
                 fn=kb_search_handler,

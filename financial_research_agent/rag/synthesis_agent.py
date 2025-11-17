@@ -58,24 +58,55 @@ Synthesize the excerpts into a clear, accurate, and well-cited answer that:
 ### For Single-Company Queries:
 - Keep responses **concise** (2-4 paragraphs)
 - Lead with the direct answer
+- **Use tables when showing trends or multiple metrics**
+  - Example: Revenue/profit over multiple quarters
+  - Example: Comparing multiple financial ratios
+  - Tables clarify numerical data better than prose
+- **Suggest visualizations when appropriate** (describe what graph would help)
+  - Trends over time → Line chart (e.g., "Revenue growth over 4 quarters would be clearer as a line chart")
+  - Composition/breakdown → Pie or bar chart (e.g., "Revenue by segment shown as a pie chart")
+  - Comparisons → Bar chart (e.g., "Comparing margins across divisions as a bar chart")
+  - Example: "📊 *Visualization suggestion: A line chart showing quarterly revenue and net income trends would illustrate the growth trajectory clearly.*"
 - Follow with supporting details and context
 - End with relevant caveats or additional considerations
 
 ### For Multi-Company Comparisons:
-- Use **tables or structured formatting** when comparing metrics
-- Normalize for different periods if needed
-- Highlight key differences and similarities
+- **ALWAYS use markdown tables** when comparing metrics across companies
+- Tables make numerical comparisons much clearer and easier to read
+- Example format:
+  ```
+  | Company | Revenue | Net Income | Profit Margin |
+  |---------|---------|-----------|---------------|
+  | AAPL    | $85.8B  | $21.4B    | 24.9%         |
+  | MSFT    | $56.2B  | $22.3B    | 39.7%         |
+  ```
+- **Generate visualizations for comparison data**
+  - Side-by-side comparisons → Grouped bar chart
+  - Performance over time → Multi-line chart
+  - Market share/proportions → Pie chart
+  - **When you have numeric data suitable for charts, populate the `chart_data` field**:
+    - Extract numeric values from your analysis
+    - Choose appropriate chart type
+    - Provide clean labels and categories
+    - Example: Comparing profit margins → grouped_bar with categories=['AAPL', 'MSFT', 'NVDA'] and data={'Gross Margin': [46.8, 69.1, 66.6], 'Net Margin': [27.0, 35.7, 49.7]}
+- Normalize for different periods if needed (note any adjustments in a footnote)
+- Highlight key differences and similarities in text after the table
 - Note any limitations in comparability
 
 ### Source Citation:
 - **Every factual claim** should have a citation
-- Example: "Apple's Q3 2024 revenue was $85.8B [AAPL - Financial Statements, Q3 FY2024]"
-- For data from multiple sources, cite all: "[AAPL - Financial Analysis, Q3 2024; AAPL - Risk Analysis, Q3 2024]"
+- **Knowledge Base sources**: Use format `[TICKER - Analysis Type, Period]`
+  - Example: "Apple's Q3 2024 revenue was $85.8B [AAPL - Financial Statements, Q3 FY2024]"
+  - For multiple KB sources, cite all: "[AAPL - Financial Analysis, Q3 2024; AAPL - Risk Analysis, Q3 2024]"
+- **Web Search sources**: Use format `[Source: Web Search, {{date}}]` or `[Source: {{Website Name}}]`
+  - Example: "Apple announced $100B AI investment [Source: Web Search, 2025-01-15]"
+  - If URL is notable (e.g., CNBC, Bloomberg), use: "[Source: CNBC]"
+  - ALWAYS clearly distinguish web sources from KB sources
 
 ### Confidence Assessment:
 - **High**: Multiple consistent sources, recent data (≤30 days), complete information
-- **Medium**: Single source, or aging data (30-90 days), or partial information
-- **Low**: Conflicting sources, stale data (>90 days), or significant gaps
+- **Medium**: Single source, or aging data (30-90 days), or partial information, or mix of KB + web sources
+- **Low**: Conflicting sources, stale data (>90 days), or significant gaps, or only web sources (no KB data)
 
 ### Data Age Assessment:
 - Check the relevance score and metadata to estimate data age
@@ -88,6 +119,7 @@ Synthesize the excerpts into a clear, accurate, and well-cited answer that:
 2. **Risk information**: Risk analyses (based on SEC Form 10-K/10-Q risk factors)
 3. **Derived metrics**: Financial metrics (calculated ratios and trends)
 4. **Narrative analysis**: Financial analysis, comprehensive reports
+5. **Supplementary**: Web search results (web_search) - use to fill gaps or provide recent context
 
 ### Handling Edge Cases:
 - **No relevant data**: "I don't have information about [topic] for [company] in my current knowledge base."
@@ -101,6 +133,34 @@ financial professionals and educated investors.
 
 Current datetime: {current_time}
 """
+
+
+class ChartData(BaseModel):
+    """Data for generating a chart visualization."""
+
+    chart_type: str = Field(
+        description="Type of chart: 'bar', 'grouped_bar', 'line', 'multi_line', 'pie'"
+    )
+
+    title: str = Field(
+        description="Chart title"
+    )
+
+    x_label: str = Field(
+        description="X-axis label"
+    )
+
+    y_label: str = Field(
+        description="Y-axis label"
+    )
+
+    data: dict[str, list[float]] = Field(
+        description="Chart data as {series_name: [values]}. For bar/line: single series. For grouped_bar/multi_line: multiple series"
+    )
+
+    categories: list[str] = Field(
+        description="X-axis categories (e.g., company names, quarters, dates)"
+    )
 
 
 class RAGResponse(BaseModel):
@@ -131,6 +191,11 @@ class RAGResponse(BaseModel):
     suggested_followup: list[str] | None = Field(
         default=None,
         description="1-3 suggested follow-up questions the user might want to ask"
+    )
+
+    chart_data: ChartData | None = Field(
+        default=None,
+        description="Optional chart data if the query would benefit from visualization (comparisons, trends, etc.)"
     )
 
 
