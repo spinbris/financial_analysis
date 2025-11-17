@@ -105,12 +105,17 @@ ChromaDB RAG → Indexes for future retrieval
 - Altering agent prompts without understanding impact on quality
 - Changing ChromaDB schema (could break existing analyses)
 - Modifying Modal deployment without testing costs
+- **RAG ticker extraction** in `rag/utils.py` - edgartools validation is critical
+- **Web search rate limiting** in `web_app.py` - semaphore prevents API throttling
+- **Synthesis agent prompts** in `rag/synthesis_agent.py` - controls answer quality
 
 **Test Changes:**
 - Always run data verification checks after modifying financial calculations
 - Compare output against known-good analyses
 - Check balance sheet equation validation (Assets = Liabilities + Equity)
 - Verify XBRL extraction with raw CSV audit files
+- Test ticker extraction with queries like "Tesla's key financial risks" (should not extract "KEY")
+- Test multi-company queries for rate limiting (e.g., 5+ companies with web search enabled)
 
 ---
 
@@ -121,9 +126,10 @@ ChromaDB RAG → Indexes for future retrieval
 financial_research_agent/
 ├── main_enhanced.py          # Main analysis pipeline (production)
 ├── main_budget.py            # Budget mode (cost-optimized)
+├── web_app.py                # Gradio web interface implementation
 ├── agents/                   # Specialist agents
 │   ├── planner.py
-│   ├── search.py
+│   ├── search_agent.py       # Multi-provider web search (Brave/Serper)
 │   ├── edgar.py
 │   ├── financial_statements.py
 │   ├── financial_metrics.py
@@ -132,15 +138,20 @@ financial_research_agent/
 │   ├── writer.py
 │   └── verifier.py
 ├── rag/
-│   └── chroma_manager.py     # RAG/ChromaDB integration
-└── tools/
-    └── edgar_tools.py        # XBRL extraction logic
+│   ├── chroma_manager.py     # RAG/ChromaDB integration
+│   ├── synthesis_agent.py    # AI-powered answer synthesis with web search
+│   └── utils.py              # Ticker extraction (edgartools validation)
+├── tools/
+│   ├── edgar_tools.py        # XBRL extraction logic
+│   └── brave_search.py       # Brave Search API integration
+└── utils/
+    └── sector_detection.py   # Sector-specific logic & ticker normalization
 ```
 
 ### Deployment
 ```
 modal_app.py                  # Modal deployment config
-launch_web_app.py             # Gradio web interface
+launch_web_app.py             # Gradio web interface launcher
 ```
 
 ### Output
@@ -151,6 +162,22 @@ output/YYYYMMDD_HHMMSS/       # Timestamped analysis results
 ├── 04_financial_metrics.md
 ├── 07_comprehensive_report.md
 └── xbrl_raw_*.csv            # Audit trail
+```
+
+### Documentation Structure
+```
+root/
+├── README.md                 # Project overview
+├── QUICKSTART.md             # Quick start guide
+├── ARCHITECTURE.md           # System architecture
+├── CLAUDE.md                 # AI assistant context (this file)
+└── docs/
+    ├── SETUP.md              # Detailed setup
+    ├── COST_GUIDE.md         # Cost optimization
+    ├── WEB_APP_GUIDE.md      # Web interface guide
+    ├── DEV_WORKFLOW.md       # Development workflow
+    ├── MASTER_DEV_PLAN.md    # Roadmap
+    └── archive/              # Completed implementation docs
 ```
 
 ---
@@ -254,6 +281,47 @@ modal deploy modal_app.py
 
 ---
 
+## Recent RAG Improvements (November 2025)
+
+### Ticker Extraction Enhancement
+**Problem**: Queries like "Compare Microsoft and Google's cloud strategies" extracted "CLOUD" as a ticker. "What are Tesla's key financial risks?" extracted "KEY" and "RISKS".
+
+**Solution**: Implemented edgartools validation in [rag/utils.py](financial_research_agent/rag/utils.py):
+- `_validate_ticker_with_edgar(ticker)` function uses `Company(ticker)` lookup
+- Checks for "Entity -999999999" placeholder for invalid tickers
+- Reduced common_words blacklist to only basic English words
+- Sustainable approach - no more hardcoded financial term blacklists
+
+**Impact**: Eliminated false positive ticker extraction, more accurate KB queries
+
+### Web Search Rate Limiting
+**Problem**: KB query web search hit HTTP 429 errors when querying multiple companies (e.g., "Compare AI spend among AAPL, MSFT, GOOGL, META, NVDA") - only 1 of 5 succeeded.
+
+**Solution**: Implemented rate limiting in [web_app.py](financial_research_agent/web_app.py):
+- `asyncio.Semaphore(2)` limits concurrent Brave API requests
+- Exponential backoff retry (1s, 2s, 4s) for 429 errors
+- 0.5 second spacing between successful requests
+- Enhanced error tracking and user-visible error messages
+
+**Impact**: Reliable multi-company queries, no more rate limit failures
+
+### Visualization Suggestions
+**Enhancement**: RAG synthesis agent now suggests appropriate visualizations in [rag/synthesis_agent.py](financial_research_agent/rag/synthesis_agent.py):
+- Trends over time → Line chart suggestion
+- Multi-company comparisons → Grouped bar chart suggestion
+- Composition/breakdown → Pie chart suggestion
+- Added `ChartData` Pydantic model for structured chart specifications
+
+**Impact**: Users know when visualizations would improve data comprehension
+
+### Multi-Company Query Balance
+**Enhancement**: Per-company query strategy ensures equal representation:
+- 2 financial_metrics chunks + 1 general chunk per company
+- Prevents single company dominating results
+- More balanced comparison answers
+
+---
+
 ## API Keys & Secrets
 
 ### Required Keys
@@ -328,6 +396,12 @@ cat output/*/xbrl_raw_balance_sheet_*.csv
 - Located in `launch_web_app.py`
 - Three modes: Run New, View Existing, Query Knowledge Base
 - Runs on port 7860 by default
+- KB query mode includes:
+  - Intelligent ticker extraction with edgartools validation
+  - Web search supplementation with rate limiting
+  - Multi-company balanced queries
+  - Visualization suggestions
+  - Error reporting for web search issues
 
 ### Modal API
 - REST endpoints for programmatic access
@@ -340,6 +414,9 @@ cat output/*/xbrl_raw_balance_sheet_*.csv
 - Semantic search over analyses
 - Automatic indexing after each analysis
 - Query via Python API or REST
+- AI synthesis agent (gpt-4o-mini) for coherent answers
+- Web search fallback via Brave API (with rate limiting)
+- Ticker extraction uses edgartools Company lookup to prevent false positives
 
 ---
 
@@ -420,11 +497,29 @@ modal app logs financial-research-agent
 ## Support & Documentation
 
 ### Key Docs
+
+**Root Level:**
 - README.md - Overview and setup
+- QUICKSTART.md - Quick start guide
+- ARCHITECTURE.md - System architecture
+- CLAUDE.md - This file (AI assistant context)
+
+**docs/ Folder:**
 - SETUP.md - Detailed installation
 - COST_GUIDE.md - Cost breakdown
 - EDGAR_INTEGRATION_GUIDE.md - XBRL details
+- WEB_APP_GUIDE.md - Web interface usage
+- DEV_WORKFLOW.md - Development workflow
+- MASTER_DEV_PLAN.md - Long-term roadmap
+- ISSUES_ENHANCEMENTS.md - Known issues
+
+**docs/archive/ Folder:**
+- Completed implementation documentation (banking ratios, UI fixes, phase completions)
+- Historical reference only - not current guidance
+
+**Legal:**
 - ATTRIBUTION.md - Licensing
+- LICENSE - MIT License text
 
 ### Getting Help
 1. Check error_log.txt in output directory
@@ -432,6 +527,7 @@ modal app logs financial-research-agent
 3. Check Modal logs for deployment issues
 4. Consult SEC EDGAR documentation for filing questions
 5. Review OpenAI Agents SDK docs for agent issues
+6. For completed features, check docs/archive/ for implementation details
 
 ---
 

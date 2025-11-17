@@ -95,11 +95,27 @@ Analyze Apple's most recent quarterly performance
 
 ## Documentation
 
-- **[QUICK_START_BUDGET.md](QUICK_START_BUDGET.md)** - Get started in 30 seconds
-- **[SETUP.md](SETUP.md)** - Complete setup guide
-- **[COST_GUIDE.md](COST_GUIDE.md)** - Cost breakdown and optimization
-- **[EDGAR_INTEGRATION_GUIDE.md](EDGAR_INTEGRATION_GUIDE.md)** - EDGAR integration details
+### Core Documentation (Root)
+- **[README.md](README.md)** - This file: project overview and quick start
+- **[QUICKSTART.md](QUICKSTART.md)** - Get started in 30 seconds
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture and design
+- **[CLAUDE.md](CLAUDE.md)** - AI assistant context and guardrails
+
+### Detailed Guides (docs/)
+- **[docs/SETUP.md](docs/SETUP.md)** - Complete setup guide
+- **[docs/COST_GUIDE.md](docs/COST_GUIDE.md)** - Cost breakdown and optimization
+- **[docs/EDGAR_INTEGRATION_GUIDE.md](docs/EDGAR_INTEGRATION_GUIDE.md)** - EDGAR integration details
+- **[docs/WEB_APP_GUIDE.md](docs/WEB_APP_GUIDE.md)** - Web interface usage
+- **[docs/FINANCIAL_METRICS_GUIDE.md](docs/FINANCIAL_METRICS_GUIDE.md)** - Financial metrics reference
+
+### Development (docs/)
+- **[docs/DEV_WORKFLOW.md](docs/DEV_WORKFLOW.md)** - Development workflow and best practices
+- **[docs/MASTER_DEV_PLAN.md](docs/MASTER_DEV_PLAN.md)** - Long-term development roadmap
+- **[docs/ISSUES_ENHANCEMENTS.md](docs/ISSUES_ENHANCEMENTS.md)** - Known issues and planned enhancements
+
+### Legal
 - **[ATTRIBUTION.md](ATTRIBUTION.md)** - Licensing and attribution
+- **[LICENSE](LICENSE)** - MIT License text
 
 ## Attribution & License
 
@@ -417,12 +433,20 @@ financial_research_agent/output/YYYYMMDD_HHMMSS/
 
 ## Recent Improvements
 
+### RAG Query Enhancements (November 2025)
+- **Intelligent Ticker Extraction**: Uses edgartools Company lookup to validate ticker symbols from natural language queries, eliminating false positives like "CLOUD", "KEY", "RISKS"
+- **Web Search Rate Limiting**: Semaphore-based concurrency control (max 2 concurrent) with exponential backoff retry logic prevents HTTP 429 errors when supplementing KB queries
+- **Multi-Company Query Balance**: Per-company query strategy ensures equal representation (2 financial_metrics + 1 general chunk per company)
+- **Visualization Suggestions**: RAG synthesis agent suggests appropriate charts (line, bar, pie) when data would benefit from visualization
+- **Enhanced Error Reporting**: Web search errors now displayed to users with detailed diagnostic information
+
 ### RAG Synthesis Agent (November 2025)
 - **AI-Powered Q&A**: Lightweight gpt-4o-mini synthesis agent transforms raw ChromaDB chunks into coherent, well-cited answers
 - **Source Attribution**: Every factual claim cited in format `[TICKER - Analysis Type, Period]`
 - **Confidence Assessment**: Automatic high/medium/low confidence indicators based on data completeness and consistency
 - **Smart Follow-ups**: Proactive suggestions for relevant next questions
 - **Event Loop Handling**: Robust async handling works in main threads, worker threads (Gradio), and nested execution contexts
+- **Web Search Supplementation**: Brave API integration fills knowledge gaps with configurable retry logic and rate limiting
 
 ### Data Quality & Verification (November 2025)
 - **Fixed balance sheet verification**: Corrected equity double-counting issue that was causing false failure reports
@@ -432,9 +456,9 @@ financial_research_agent/output/YYYYMMDD_HHMMSS/
 
 ### User Interface Enhancements
 - **Analysis selection**: Web interface now supports viewing existing analyses without re-running
-- **Mode switching**: Toggle between "Run New Analysis" and "View Existing Analysis"
+- **Mode switching**: Toggle between "Run New Analysis", "View Existing Analysis", and "Query Knowledge Base"
 - **Automatic discovery**: System scans output directory and presents up to 50 most recent completed analyses
-- **Ticker extraction**: Smart extraction of ticker symbols from queries for easy identification
+- **Ticker extraction**: Smart extraction of ticker symbols from queries with SEC database validation for easy identification
 
 ## Future Enhancements
 
