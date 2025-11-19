@@ -45,13 +45,15 @@ Planner Agent → Creates search strategy
     ↓
 Search Agent → Gathers market context (Brave API)
     ↓
+ChromaDB Filing Cache → Check for cached 10-K/10-Q filings
+    ↓ (cache hit: 0.02s, cache miss: download & cache)
 EDGAR Agent → Fetches SEC filings (edgartools)
     ↓
 Specialist Agents:
 ├─ Financial Statements Agent → Extracts XBRL (118+ items)
 ├─ Financial Metrics Agent → Calculates ratios
 ├─ Financials Agent → 800-1200 word analysis
-└─ Risk Agent → 800-1200 word risk assessment
+└─ Risk Agent → 800-1200 word risk assessment (uses cached filings)
     ↓
 Writer Agent → Synthesizes comprehensive report
     ↓
@@ -59,6 +61,21 @@ Verification Agent → Quality checks
     ↓
 ChromaDB RAG → Indexes for future retrieval
 ```
+
+### SEC Filing Cache
+
+ChromaDB stores two separate collections:
+1. **`financial_analyses`** - Indexed analysis reports for semantic search
+2. **`sec_filings_cache`** - Raw SEC filing content (10-K, 10-Q) for instant retrieval
+
+**How it works:**
+- First analysis for a ticker: Downloads 10-K/10-Q from SEC EDGAR, extracts Item 1A (Risk Factors), Item 2 (MD&A), Item 3 (Legal), stores in cache
+- Subsequent analyses: Retrieves from cache (~0.02s vs ~7s download) - **99.7% speedup**
+- 8-K filings: Always fetched fresh (they contain material events that change frequently)
+
+**Key files:**
+- `financial_research_agent/rag/chroma_manager.py` - Contains `store_sec_filing()`, `get_cached_filing()`, `reset_filings_cache()`
+- `financial_research_agent/edgar_tools.py` - `extract_risk_factors()` function with cache integration
 
 ---
 

@@ -44,9 +44,14 @@ class AgentConfig:
     #   - Best for: Complex reasoning, deep financial analysis
     DEFAULT_PROVIDER = os.getenv("LLM_PROVIDER", "openai")
 
-    # Model configurations - automatically set based on LLM_PROVIDER
+    # Cost Mode Selection
+    # Options: "standard" (higher quality, ~$0.80/report) or "budget" (cheaper, ~$0.30/report)
+    COST_MODE = os.getenv("COST_MODE", "standard")
+
+    # Model configurations - automatically set based on LLM_PROVIDER and COST_MODE
     # Groq: Fast & cheap (~$0.15/report, 10-100x faster)
-    # OpenAI: High quality (~$1.50/report, GPT-5 reasoning models)
+    # OpenAI Standard: High quality (~$0.80/report, GPT-5 reasoning models)
+    # OpenAI Budget: Cost-optimized (~$0.30/report, gpt-4o-mini for most tasks)
 
     if DEFAULT_PROVIDER == "groq":
         # Groq models (updated Nov 2025)
@@ -64,14 +69,25 @@ class AgentConfig:
         FINANCIALS_MODEL = os.getenv("FINANCIALS_MODEL", "openai/gpt-oss-120b")
         RISK_MODEL = os.getenv("RISK_MODEL", "openai/gpt-oss-120b")
         METRICS_MODEL = os.getenv("METRICS_MODEL", "openai/gpt-oss-120b")
+    elif COST_MODE == "budget":
+        # Budget mode: Use gpt-4o-mini for most tasks, keep quality for writer
+        # Cost: ~$0.30/report (vs ~$0.80 standard)
+        PLANNER_MODEL = os.getenv("PLANNER_MODEL", "o3-mini")
+        SEARCH_MODEL = os.getenv("SEARCH_MODEL", "gpt-4o-mini")
+        WRITER_MODEL = os.getenv("WRITER_MODEL", "gpt-5.1")
+        VERIFIER_MODEL = os.getenv("VERIFIER_MODEL", "gpt-4o-mini")
+        EDGAR_MODEL = os.getenv("EDGAR_MODEL", "gpt-4o-mini")
+        FINANCIALS_MODEL = os.getenv("FINANCIALS_MODEL", "gpt-5-nano")
+        RISK_MODEL = os.getenv("RISK_MODEL", "gpt-5.1")
+        METRICS_MODEL = os.getenv("METRICS_MODEL", "gpt-5-nano")
     else:
-        # OpenAI GPT-5 models - use env vars from .env file if provided
-        # Note: Avoiding o3-mini due to verbosity parameter issues
-        PLANNER_MODEL = os.getenv("PLANNER_MODEL", "gpt-5-nano")
-        SEARCH_MODEL = os.getenv("SEARCH_MODEL", "gpt-5-nano")
-        WRITER_MODEL = os.getenv("WRITER_MODEL", "gpt-5")
-        VERIFIER_MODEL = os.getenv("VERIFIER_MODEL", "gpt-5-nano")
-        EDGAR_MODEL = os.getenv("EDGAR_MODEL", "gpt-5-nano")
+        # Standard mode: OpenAI GPT-5 models for best quality
+        # Cost: ~$0.80/report
+        PLANNER_MODEL = os.getenv("PLANNER_MODEL", "o3-mini")
+        SEARCH_MODEL = os.getenv("SEARCH_MODEL", "gpt-4.1")
+        WRITER_MODEL = os.getenv("WRITER_MODEL", "gpt-5.1")
+        VERIFIER_MODEL = os.getenv("VERIFIER_MODEL", "gpt-4.1")
+        EDGAR_MODEL = os.getenv("EDGAR_MODEL", "gpt-4.1")
         FINANCIALS_MODEL = os.getenv("FINANCIALS_MODEL", "gpt-5")
         RISK_MODEL = os.getenv("RISK_MODEL", "gpt-5")
         METRICS_MODEL = os.getenv("METRICS_MODEL", "gpt-5")

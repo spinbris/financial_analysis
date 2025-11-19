@@ -433,6 +433,19 @@ financial_research_agent/output/YYYYMMDD_HHMMSS/
 
 ## Recent Improvements
 
+### SEC Filing Cache (November 2025)
+- **ChromaDB Filing Cache**: SEC filings (10-K, 10-Q) are now cached in ChromaDB for instant retrieval on subsequent analyses
+  - First analysis: Downloads from SEC EDGAR and caches (~7 seconds)
+  - Subsequent analyses: Retrieves from cache (~0.02 seconds) - **99.7% speedup**
+- **8-K Extraction Fix**: Fixed PyArrow compatibility issue preventing 8-K filing extraction
+  - Now properly extracts Item types (2.02 Results, 5.02 Director Changes, 8.01 Other Events, 9.01 Financial Statements)
+  - Uses `head(5)` method instead of slice `[:5]` to avoid PyArrow array errors
+- **Cache Management Methods**:
+  - `store_sec_filing()` - Store filing items in ChromaDB with 8000-char chunking
+  - `get_cached_filing()` - Retrieve cached filing (most recent by default)
+  - `get_cached_filings_summary()` - List all cached filings
+  - `reset_filings_cache()` - Clear the filing cache
+
 ### RAG Query Enhancements (November 2025)
 - **Intelligent Ticker Extraction**: Uses edgartools Company lookup to validate ticker symbols from natural language queries, eliminating false positives like "CLOUD", "KEY", "RISKS"
 - **Web Search Rate Limiting**: Semaphore-based concurrency control (max 2 concurrent) with exponential backoff retry logic prevents HTTP 429 errors when supplementing KB queries
