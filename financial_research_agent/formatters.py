@@ -64,6 +64,189 @@ def format_multiplier(value: float | None, decimals: int = 1) -> str:
     return f"{value:.{decimals}f}x"
 
 
+def _format_number_with_suffix(value: float | int) -> str:
+    """Format large numbers with B/M suffix for billions/millions.
+
+    Args:
+        value: Numeric value
+
+    Returns:
+        Formatted string like "$313.7B" or "$45.2M"
+    """
+    if abs(value) >= 1_000_000_000:
+        return f"${value / 1_000_000_000:.1f}B"
+    elif abs(value) >= 1_000_000:
+        return f"${value / 1_000_000:.1f}M"
+    else:
+        return f"${value:,.0f}"
+
+
+def format_yoy_comparison_tables(
+    income_statement_df: pd.DataFrame,
+    filing_reference: str,
+    cashflow_df: pd.DataFrame | None = None
+) -> str:
+    """Generate YoY comparison tables as markdown from income statement and cash flow DataFrames.
+
+    Args:
+        income_statement_df: DataFrame with columns for current and prior period
+                           Expected structure from edgartools:
+                           - 'label' column with line item names
+                           - Date columns like '2025-06-28', '2024-06-29' with values
+        filing_reference: Reference to the SEC filing
+        cashflow_df: Optional DataFrame with cash flow data for OCF, CapEx, and FCF
+
+    Returns:
+        Markdown-formatted string with three YoY comparison tables + FCF calculation
+    """
+    if income_statement_df is None or income_statement_df.empty:
+        return "**Data not available for YoY comparison tables.**\n\n"
+
+    # Get date columns (they look like '2025-06-28', '2024-06-29')
+    date_cols = [col for col in income_statement_df.columns if isinstance(col, str) and '-' in col and col[0].isdigit()]
+
+    if len(date_cols) < 2:
+        return "**Insufficient data for YoY comparison (need current and prior period).**\n\n"
+
+    current_col = date_cols[0]
+    prior_col = date_cols[1]
+
+    output = ""
+
+    # Helper function to extract value and calculate YoY
+    def get_row_data(label: str):
+        """Extract current, prior, and calculate YoY for a given label."""
+        # Find row where 'label' column matches the given label
+        matching_rows = income_statement_df[income_statement_df['label'] == label]
+
+        if matching_rows.empty:
+            return None, None, None, None
+
+        # Get the first matching row
+        row = matching_rows.iloc[0]
+        current = row[current_col]
+        prior = row[prior_col]
+
+        if pd.isna(current) or pd.isna(prior) or current == 0 or prior == 0:
+            return None, None, None, None
+
+        yoy_change = current - prior
+        yoy_pct = ((current - prior) / abs(prior)) * 100
+
+        return current, prior, yoy_change, yoy_pct
+
+    # Table 1: Key Metrics
+    output += "### Key Financial Metrics (YoY Comparison)\n\n"
+    output += "| Metric | Current Period | Prior Period | YoY Change | YoY % |\n"
+    output += "|--------|----------------|--------------|------------|-------|\n"
+
+    key_metrics = [
+        ("Revenue", "Contract Revenue"),
+        ("Gross Profit", "Gross Profit"),
+        ("Operating Income", "Operating Income"),
+        ("Net Income", "Net Income"),
+    ]
+
+    for display_label, df_label in key_metrics:
+        current, prior, yoy_change, yoy_pct = get_row_data(df_label)
+        if current is not None:
+            output += f"| {display_label} | {_format_number_with_suffix(current)} | {_format_number_with_suffix(prior)} | {_format_number_with_suffix(yoy_change)} | {yoy_pct:+.1f}% |\n"
+
+    # Add cash flow metrics if available
+    if cashflow_df is not None and not cashflow_df.empty:
+        # Get date columns from cashflow (should match income statement)
+        cf_date_cols = [col for col in cashflow_df.columns if isinstance(col, str) and '-' in col and col[0].isdigit()]
+
+        if len(cf_date_cols) >= 2:
+            cf_current_col = cf_date_cols[0]
+            cf_prior_col = cf_date_cols[1]
+
+            # Helper to get row from cashflow DataFrame
+            def get_cf_row_data(label: str):
+                matching_rows = cashflow_df[cashflow_df['label'] == label]
+                if matching_rows.empty:
+                    return None, None, None, None
+                row = matching_rows.iloc[0]
+                current = row[cf_current_col]
+                prior = row[cf_prior_col]
+                if pd.isna(current) or pd.isna(prior):
+                    return None, None, None, None
+                yoy_change = current - prior
+                yoy_pct = ((current - prior) / abs(prior)) * 100 if prior != 0 else 0
+                return current, prior, yoy_change, yoy_pct
+
+            # Get OCF and CapEx
+            ocf_current, ocf_prior, ocf_change, ocf_pct = get_cf_row_data("Net Cash from Operating Activities")
+            capex_current, capex_prior, capex_change, capex_pct = get_cf_row_data("Payments for Property, Plant and Equipment")
+
+            # Add OCF row
+            if ocf_current is not None:
+                output += f"| Operating Cash Flow | {_format_number_with_suffix(ocf_current)} | {_format_number_with_suffix(ocf_prior)} | {_format_number_with_suffix(ocf_change)} | {ocf_pct:+.1f}% |\n"
+
+            # Add CapEx row (note: this is negative in the statement, so we show it as positive expense)
+            if capex_current is not None:
+                # CapEx is shown as negative in cash flow, so flip the sign for display
+                capex_current_abs = abs(capex_current)
+                capex_prior_abs = abs(capex_prior)
+                capex_change_display = capex_current_abs - capex_prior_abs
+                capex_pct_display = ((capex_current_abs - capex_prior_abs) / capex_prior_abs) * 100 if capex_prior_abs != 0 else 0
+                output += f"| Capital Expenditures | {_format_number_with_suffix(capex_current_abs)} | {_format_number_with_suffix(capex_prior_abs)} | {_format_number_with_suffix(capex_change_display)} | {capex_pct_display:+.1f}% |\n"
+
+            # Calculate and add FCF row
+            if ocf_current is not None and capex_current is not None:
+                fcf_current = ocf_current - abs(capex_current)
+                fcf_prior = ocf_prior - abs(capex_prior)
+                fcf_change = fcf_current - fcf_prior
+                fcf_pct = ((fcf_current - fcf_prior) / abs(fcf_prior)) * 100 if fcf_prior != 0 else 0
+                output += f"| **Free Cash Flow** | **{_format_number_with_suffix(fcf_current)}** | **{_format_number_with_suffix(fcf_prior)}** | **{_format_number_with_suffix(fcf_change)}** | **{fcf_pct:+.1f}%** |\n"
+
+    output += f"\n**Source:** {filing_reference}\n"
+    output += f"\n**Note:** Free Cash Flow = Operating Cash Flow − Capital Expenditures\n\n"
+
+    # Table 2: Segment Revenue
+    output += "### Segment Revenue (YoY Comparison)\n\n"
+    output += "| Segment | Current Period | Prior Period | YoY Change | YoY % |\n"
+    output += "|---------|----------------|--------------|------------|-------|\n"
+
+    segments = [
+        ("Products", "Products"),
+        ("Services", "Services"),
+        ("iPhone", "iPhone"),
+        ("Mac", "Mac"),
+        ("iPad", "iPad"),
+        ("Wearables/Home/Accessories", "Wearables, Home and Accessories"),
+    ]
+
+    for display_label, df_label in segments:
+        current, prior, yoy_change, yoy_pct = get_row_data(df_label)
+        if current is not None:
+            output += f"| {display_label} | {_format_number_with_suffix(current)} | {_format_number_with_suffix(prior)} | {_format_number_with_suffix(yoy_change)} | {yoy_pct:+.1f}% |\n"
+
+    output += f"\n**Source:** {filing_reference}\n\n"
+
+    # Table 3: Geographic Revenue
+    output += "### Geographic Revenue (YoY Comparison)\n\n"
+    output += "| Geography | Current Period | Prior Period | YoY Change | YoY % |\n"
+    output += "|-----------|----------------|--------------|------------|-------|\n"
+
+    geographies = [
+        ("Americas", "Americas"),
+        ("Europe", "Europe"),
+        ("Greater China", "Greater China"),
+        ("Japan", "Japan"),
+        ("Rest of Asia Pacific", "Rest of Asia Pacific"),
+    ]
+
+    for display_label, df_label in geographies:
+        current, prior, yoy_change, yoy_pct = get_row_data(df_label)
+        if current is not None:
+            output += f"| {display_label} | {_format_number_with_suffix(current)} | {_format_number_with_suffix(prior)} | {_format_number_with_suffix(yoy_change)} | {yoy_pct:+.1f}% |\n"
+
+    output += f"\n**Source:** {filing_reference}\n\n"
+
+    return output
+
+
 def get_ratio_interpretation(ratio_name: str, value: float | None) -> str:
     """Get interpretation symbol for a ratio value.
 
@@ -622,12 +805,19 @@ def _calculate_ratio_from_data(balance_sheet: dict, income_statement: dict, cash
     return None
 
 
-def format_financial_metrics(metrics: Any, company_name: str) -> str:
+def format_financial_metrics(
+    metrics: Any,
+    company_name: str,
+    income_statement_df: pd.DataFrame | None = None,
+    cashflow_df: pd.DataFrame | None = None
+) -> str:
     """Format financial metrics and ratios as markdown with tables and analysis.
 
     Args:
         metrics: FinancialMetrics object
         company_name: Company name
+        income_statement_df: Optional DataFrame with current and prior period columns for YoY tables
+        cashflow_df: Optional DataFrame with cash flow data for FCF calculation
 
     Returns:
         Formatted markdown string with ratio tables and interpretations
@@ -676,6 +866,15 @@ def format_financial_metrics(metrics: Any, company_name: str) -> str:
     output += "## Executive Summary\n\n"
     output += f"{metrics.executive_summary}\n\n"
     output += "---\n\n"
+
+    # Year-over-Year Comparison Tables (if income statement DataFrame is available)
+    if income_statement_df is not None and not income_statement_df.empty:
+        output += format_yoy_comparison_tables(
+            income_statement_df,
+            f"{metrics.period} (Filing: {metrics.filing_date})",
+            cashflow_df=cashflow_df
+        )
+        output += "---\n\n"
 
     # Liquidity Ratios
     output += "## Liquidity Ratios\n"

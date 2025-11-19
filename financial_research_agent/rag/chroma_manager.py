@@ -39,6 +39,12 @@ class FinancialRAGManager:
             metadata={"hnsw:space": "cosine"}
         )
 
+        # Separate collection for SEC filing cache (raw filings for reuse)
+        self.filings_collection = self.client.get_or_create_collection(
+            name="sec_filings_cache",
+            metadata={"hnsw:space": "cosine"}
+        )
+
     def index_analysis_from_directory(
         self,
         output_dir: str | Path,
@@ -557,10 +563,305 @@ class FinancialRAGManager:
             else:
                 return "stale"
 
+    # ========== SEC Filing Cache Methods ==========
+
+    def store_sec_filing(
+        self,
+        ticker: str,
+        filing_type: str,
+        filing_date: str,
+        accession: str,
+        items: dict[str, str]
+    ) -> str:
+        """
+        Store a SEC filing's extracted items in ChromaDB for caching.
+
+        Args:
+            ticker: Stock ticker symbol
+            filing_type: Filing type (10-K, 10-Q, 8-K)
+            filing_date: Filing date (YYYY-MM-DD)
+            accession: SEC accession number
+            items: Dictionary of extracted items (e.g., {'item1a': '...', 'mda': '...'})
+
+        Returns:
+            Filing ID used for storage
+        """
+        filing_id = f"{ticker.upper()}_{filing_type}_{filing_date}_{accession}"
+
+        # Store each item as a separate document for semantic search
+        documents = []
+        metadatas = []
+        ids = []
+
+        for item_name, content in items.items():
+            if not content or len(content) < 100:
+                continue
+
+            # Chunk large items
+            chunks = self._chunk_filing_content(content, chunk_size=8000)
+
+            for i, chunk in enumerate(chunks):
+                doc_id = f"{filing_id}_{item_name}_c{i}"
+                documents.append(chunk)
+                metadatas.append({
+                    "ticker": ticker.upper(),
+                    "filing_type": filing_type,
+                    "filing_date": filing_date,
+                    "accession": accession,
+                    "item_name": item_name,
+                    "chunk_num": i,
+                    "total_chunks": len(chunks),
+                    "stored_at": datetime.now().isoformat()
+                })
+                ids.append(doc_id)
+
+        if documents:
+            self.filings_collection.upsert(
+                documents=documents,
+                metadatas=metadatas,
+                ids=ids
+            )
+            print(f"✓ Cached {len(documents)} chunks from {filing_type} ({filing_date}) for {ticker}")
+
+        return filing_id
+
+    def _chunk_filing_content(self, content: str, chunk_size: int = 8000) -> list[str]:
+        """Split filing content into chunks for storage."""
+        if len(content) <= chunk_size:
+            return [content]
+
+        chunks = []
+        # Split on paragraph boundaries
+        paragraphs = content.split('\n\n')
+        current_chunk = []
+        current_size = 0
+
+        for para in paragraphs:
+            if current_size + len(para) > chunk_size and current_chunk:
+                chunks.append('\n\n'.join(current_chunk))
+                current_chunk = [para]
+                current_size = len(para)
+            else:
+                current_chunk.append(para)
+                current_size += len(para) + 2
+
+        if current_chunk:
+            chunks.append('\n\n'.join(current_chunk))
+
+        return chunks
+
+    def get_cached_filing(
+        self,
+        ticker: str,
+        filing_type: str,
+        filing_date: str | None = None
+    ) -> dict[str, str] | None:
+        """
+        Retrieve a cached SEC filing from ChromaDB.
+
+        Args:
+            ticker: Stock ticker symbol
+            filing_type: Filing type (10-K, 10-Q)
+            filing_date: Optional specific date (defaults to most recent)
+
+        Returns:
+            Dictionary with item names as keys and content as values,
+            or None if not found
+        """
+        # Build filter
+        if filing_date:
+            where_filter = {
+                "$and": [
+                    {"ticker": ticker.upper()},
+                    {"filing_type": filing_type},
+                    {"filing_date": filing_date}
+                ]
+            }
+        else:
+            where_filter = {
+                "$and": [
+                    {"ticker": ticker.upper()},
+                    {"filing_type": filing_type}
+                ]
+            }
+
+        # Get all matching documents
+        results = self.filings_collection.get(
+            where=where_filter,
+            include=["documents", "metadatas"]
+        )
+
+        if not results["documents"]:
+            return None
+
+        # Find the most recent filing if no specific date
+        if not filing_date:
+            # Group by filing_date and get the most recent
+            dates = set(m.get("filing_date", "") for m in results["metadatas"])
+            if dates:
+                filing_date = max(dates)
+                # Re-filter for just that date
+                filtered_docs = []
+                filtered_metas = []
+                for doc, meta in zip(results["documents"], results["metadatas"]):
+                    if meta.get("filing_date") == filing_date:
+                        filtered_docs.append(doc)
+                        filtered_metas.append(meta)
+                results["documents"] = filtered_docs
+                results["metadatas"] = filtered_metas
+
+        # Reconstruct items from chunks
+        items = {}
+        item_chunks = {}  # {item_name: [(chunk_num, content), ...]}
+
+        for doc, meta in zip(results["documents"], results["metadatas"]):
+            item_name = meta.get("item_name", "unknown")
+            chunk_num = meta.get("chunk_num", 0)
+
+            if item_name not in item_chunks:
+                item_chunks[item_name] = []
+            item_chunks[item_name].append((chunk_num, doc))
+
+        # Sort chunks and join
+        for item_name, chunks in item_chunks.items():
+            sorted_chunks = sorted(chunks, key=lambda x: x[0])
+            items[item_name] = '\n\n'.join(chunk[1] for chunk in sorted_chunks)
+
+        # Add metadata
+        if results["metadatas"]:
+            items["_filing_date"] = results["metadatas"][0].get("filing_date", "")
+            items["_accession"] = results["metadatas"][0].get("accession", "")
+            items["_filing_type"] = results["metadatas"][0].get("filing_type", "")
+
+        return items
+
+    def check_filing_cached(
+        self,
+        ticker: str,
+        filing_type: str,
+        filing_date: str | None = None
+    ) -> bool:
+        """
+        Check if a filing is already cached.
+
+        Args:
+            ticker: Stock ticker
+            filing_type: Filing type
+            filing_date: Optional specific date
+
+        Returns:
+            True if cached, False otherwise
+        """
+        if filing_date:
+            where_filter = {
+                "$and": [
+                    {"ticker": ticker.upper()},
+                    {"filing_type": filing_type},
+                    {"filing_date": filing_date}
+                ]
+            }
+        else:
+            where_filter = {
+                "$and": [
+                    {"ticker": ticker.upper()},
+                    {"filing_type": filing_type}
+                ]
+            }
+
+        results = self.filings_collection.get(
+            where=where_filter,
+            limit=1
+        )
+
+        return len(results["ids"]) > 0
+
+    def search_filings(
+        self,
+        query: str,
+        ticker: str | None = None,
+        filing_type: str | None = None,
+        n_results: int = 5
+    ) -> dict[str, Any]:
+        """
+        Semantic search over cached SEC filings.
+
+        Args:
+            query: Natural language query
+            ticker: Optional ticker filter
+            filing_type: Optional filing type filter
+            n_results: Number of results
+
+        Returns:
+            ChromaDB query results
+        """
+        # Build filter
+        conditions = []
+        if ticker:
+            conditions.append({"ticker": ticker.upper()})
+        if filing_type:
+            conditions.append({"filing_type": filing_type})
+
+        where_filter = None
+        if len(conditions) > 1:
+            where_filter = {"$and": conditions}
+        elif len(conditions) == 1:
+            where_filter = conditions[0]
+
+        return self.filings_collection.query(
+            query_texts=[query],
+            n_results=n_results,
+            where=where_filter
+        )
+
+    def get_cached_filings_summary(self) -> list[dict]:
+        """
+        Get summary of all cached filings.
+
+        Returns:
+            List of filing summaries
+        """
+        all_docs = self.filings_collection.get(include=["metadatas"])
+
+        # Group by ticker, filing_type, filing_date
+        filings = {}
+        for meta in all_docs["metadatas"]:
+            key = (
+                meta.get("ticker", ""),
+                meta.get("filing_type", ""),
+                meta.get("filing_date", "")
+            )
+            if key not in filings:
+                filings[key] = {
+                    "ticker": key[0],
+                    "filing_type": key[1],
+                    "filing_date": key[2],
+                    "accession": meta.get("accession", ""),
+                    "items": set(),
+                    "chunks": 0
+                }
+            filings[key]["items"].add(meta.get("item_name", ""))
+            filings[key]["chunks"] += 1
+
+        # Convert to list
+        result = []
+        for filing in filings.values():
+            filing["items"] = list(filing["items"])
+            result.append(filing)
+
+        return sorted(result, key=lambda x: (x["ticker"], x["filing_date"]), reverse=True)
+
     def reset(self):
         """Reset/clear the entire collection (use with caution)."""
         self.client.delete_collection("financial_analyses")
         self.collection = self.client.get_or_create_collection(
             name="financial_analyses",
+            metadata={"hnsw:space": "cosine"}
+        )
+
+    def reset_filings_cache(self):
+        """Reset/clear the SEC filings cache (use with caution)."""
+        self.client.delete_collection("sec_filings_cache")
+        self.filings_collection = self.client.get_or_create_collection(
+            name="sec_filings_cache",
             metadata={"hnsw:space": "cosine"}
         )

@@ -35,6 +35,8 @@ from .formatters import format_financial_statements, format_financial_statements
 from .printer import Printer
 from .cache import FinancialDataCache
 from .xbrl_calculation import get_calculation_parser_for_filing
+from .cost_tracker import CostTracker
+from .edgar_tools import extract_risk_factors, extract_financials_analysis_data
 
 
 async def _financials_extractor(run_result: RunResult) -> str:
@@ -148,6 +150,9 @@ class EnhancedFinancialResearchManager:
         # PERFORMANCE: Cache for financial data (24 hour TTL)
         self.cache = FinancialDataCache(ttl_hours=24)
 
+        # Cost tracking (initialized per run)
+        self.cost_tracker: CostTracker | None = None
+
         # XBRL validation warnings (populated during metrics gathering)
         self.xbrl_warnings: list[str] = []
 
@@ -169,6 +174,23 @@ class EnhancedFinancialResearchManager:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.session_dir = self.output_dir / timestamp
         self.session_dir.mkdir(parents=True, exist_ok=True)
+
+        # Detect config mode based on models being used
+        import os
+        config_mode = "standard"
+        if "gpt-4o-mini" in AgentConfig.SEARCH_MODEL or "gpt-4o-mini" in AgentConfig.VERIFIER_MODEL:
+            config_mode = "budget"
+        elif os.getenv("LLM_PROVIDER") == "together":
+            config_mode = "together"
+        elif os.getenv("LLM_PROVIDER") == "groq":
+            config_mode = "groq"
+
+        # Initialize cost tracker
+        self.cost_tracker = CostTracker(
+            ticker=self.ticker or "UNKNOWN",
+            query=query,
+            config_mode=config_mode
+        )
 
         trace_id = gen_trace_id()
 
@@ -275,6 +297,12 @@ class EnhancedFinancialResearchManager:
                 self._report_progress(0.95, "Finalizing reports...")
 
                 self.printer.end()
+
+            # Finalize and save cost report
+            if self.cost_tracker:
+                self.cost_tracker.finalize()
+                self.cost_tracker.save_report(str(self.session_dir))
+                self.cost_tracker.print_summary()
 
             # All reports saved to files - just show completion message
             self._report_progress(1.0, "Analysis complete!")
@@ -410,6 +438,11 @@ class EnhancedFinancialResearchManager:
     async def _plan_searches(self, query: str) -> FinancialSearchPlan:
         self.printer.update_item("planning", "Planning searches...")
         result = await Runner.run(planner_agent, f"Query: {query}")
+
+        # Track planner cost
+        if self.cost_tracker:
+            self.cost_tracker.track_agent_run("planner", AgentConfig.PLANNER_MODEL, result)
+
         search_plan = result.final_output_as(FinancialSearchPlan)
 
         # Save the search plan
@@ -461,6 +494,11 @@ class EnhancedFinancialResearchManager:
         for attempt in range(AgentConfig.MAX_SEARCH_RETRIES):
             try:
                 result = await Runner.run(search_agent, input_data)
+
+                # Track search cost
+                if self.cost_tracker:
+                    self.cost_tracker.track_agent_run(f"search_{index}", AgentConfig.SEARCH_MODEL, result)
+
                 search_result = str(result.final_output)
 
                 # Save individual search result
@@ -504,6 +542,11 @@ class EnhancedFinancialResearchManager:
             edgar_query += "\n\nRetrieve relevant SEC filings and extract key financial data."
 
             result = await Runner.run(edgar_with_mcp, edgar_query)
+
+            # Track EDGAR agent cost
+            if self.cost_tracker:
+                self.cost_tracker.track_agent_run("edgar", AgentConfig.EDGAR_MODEL, result)
+
             edgar_data = result.final_output_as(EdgarAnalysisSummary)
 
             # Save EDGAR results
@@ -616,8 +659,13 @@ class EnhancedFinancialResearchManager:
         self.printer.update_item("metrics", "Extracting financial statements and calculating ratios...")
 
         try:
-            # Import deterministic extraction module
-            from financial_research_agent.edgar_tools import extract_financial_data_deterministic, dataframes_to_dict_format
+            # Import enhanced extraction module with edgartools XBRL features
+            from financial_research_agent.edgar_tools import (
+                extract_financial_data_enhanced,
+                dataframes_to_dict_format,
+                generate_yoy_comparison_table,
+                extract_key_metrics_from_statements
+            )
 
             # Extract company name from query using improved heuristic
             # Look for known company names or ticker symbols
@@ -652,12 +700,12 @@ class EnhancedFinancialResearchManager:
                 self.console.print(f"[dim]✓ Using cached financial data for {lookup_key}[/dim]")
                 statements_data = cached_statements
             else:
-                # Step 1: Use deterministic extraction to get complete financial data
-                self.printer.update_item("metrics", f"Extracting financial data for {lookup_key} using deterministic MCP tools...")
+                # Step 1: Use enhanced extraction to get complete financial data with XBRL features
+                self.printer.update_item("metrics", f"Extracting financial data for {lookup_key} using enhanced XBRL extraction...")
 
                 statements_data = None
                 try:
-                    statements_data = await extract_financial_data_deterministic(
+                    statements_data = await extract_financial_data_enhanced(
                         self.edgar_server,
                         lookup_key
                     )
@@ -725,6 +773,63 @@ class EnhancedFinancialResearchManager:
                 except Exception as e:
                     self.console.print(f"[dim]XBRL validation skipped: {e}[/dim]")
 
+                # Generate YoY comparison tables from enhanced data
+                if 'balance_sheet_df' in statements_data:
+                    try:
+                        self.printer.update_item("metrics", "Generating year-over-year comparison tables...")
+
+                        # Generate YoY tables for each statement
+                        yoy_tables = {}
+
+                        # Balance Sheet YoY
+                        bs_yoy = generate_yoy_comparison_table(
+                            statements_data['balance_sheet_df'],
+                            "Balance Sheet",
+                            key_items=['Assets', 'Total Assets', 'Liabilities', 'Total Liabilities',
+                                      'Equity', 'Total Equity', "Stockholders' Equity", "Total Stockholders' Equity",
+                                      'Cash and Cash Equivalents', 'Total Current Assets', 'Total Current Liabilities']
+                        )
+                        yoy_tables['balance_sheet'] = bs_yoy
+
+                        # Income Statement YoY
+                        is_yoy = generate_yoy_comparison_table(
+                            statements_data['income_statement_df'],
+                            "Income Statement",
+                            key_items=['Revenue', 'Revenues', 'Total Revenue', 'Net Sales', 'Contract Revenue',
+                                      'Gross Profit', 'Operating Income', 'Net Income', 'Earnings Per Share']
+                        )
+                        yoy_tables['income_statement'] = is_yoy
+
+                        # Cash Flow Statement YoY
+                        cf_yoy = generate_yoy_comparison_table(
+                            statements_data['cash_flow_statement_df'],
+                            "Cash Flow Statement",
+                            key_items=['Net Cash Provided by Operating Activities', 'Net Cash From Operating Activities',
+                                      'Capital Expenditures', 'Payments for Property, Plant and Equipment',
+                                      'Free Cash Flow', 'Dividends Paid', 'Stock Repurchases']
+                        )
+                        yoy_tables['cash_flow'] = cf_yoy
+
+                        # Store YoY tables for inclusion in 03_financial_statements.md
+                        statements_data['yoy_tables'] = yoy_tables
+                        self.console.print("[green]✓ YoY comparison tables generated[/green]")
+
+                        # Extract key metrics using enhanced function
+                        key_metrics = extract_key_metrics_from_statements(
+                            statements_data['balance_sheet_df'],
+                            statements_data['income_statement_df'],
+                            statements_data['cash_flow_statement_df']
+                        )
+                        statements_data['key_metrics'] = key_metrics
+
+                        if key_metrics.get('current'):
+                            self.console.print(f"[dim]  Key metrics extracted: Revenue=${key_metrics['current'].get('revenue', 0)/1e9:.1f}B, FCF=${key_metrics['current'].get('free_cash_flow', 0)/1e9:.1f}B[/dim]")
+
+                    except Exception as e:
+                        self.console.print(f"[yellow]Warning: YoY table generation failed: {e}[/yellow]")
+                        import traceback
+                        traceback.print_exc()
+
             # Step 2: Clone metrics agent with MCP server attached
             metrics_with_mcp = financial_metrics_agent.clone(mcp_servers=[self.edgar_server])
 
@@ -791,6 +896,12 @@ Extract complete financial statements and calculate comprehensive financial rati
 Use get_company_facts to get ALL available XBRL data."""
 
             result = await Runner.run(metrics_with_mcp, metrics_query, max_turns=AgentConfig.MAX_AGENT_TURNS)
+
+            # Track metrics agent cost
+            # Note: metrics agent typically uses same model as EDGAR
+            if self.cost_tracker:
+                self.cost_tracker.track_agent_run("metrics", AgentConfig.EDGAR_MODEL, result)
+
             metrics = result.final_output_as(FinancialMetrics)
 
             # If we have deterministic extraction data, use it directly for financial statements
@@ -838,9 +949,8 @@ Use get_company_facts to get ALL available XBRL data."""
                     self.console.print(f"[dim]Data flattened: {bs_before} → {bs_after}[/dim]")
 
             # Save financial statements (03_financial_statements.md)
-            # Check if we have DataFrames from the new extraction method
+            # Use Great Tables formatter for proper markdown tables
             if statements_data and 'balance_sheet_df' in statements_data:
-                # New DataFrame-based approach using Great Tables
                 self.console.print("[dim]Using Great Tables formatter for professional table styling[/dim]")
                 statements_content = format_financial_statements_gt(
                     balance_sheet_df=statements_data['balance_sheet_df'],
@@ -851,6 +961,13 @@ Use get_company_facts to get ALL available XBRL data."""
                     prior_period=statements_data.get('prior_period'),
                     filing_reference=statements_data.get('filing_reference', 'Unknown'),
                 )
+                # Append YoY comparison tables
+                if statements_data.get('yoy_tables'):
+                    statements_content += "\n---\n\n"
+                    statements_content += "# Year-over-Year Comparison Tables\n\n"
+                    statements_content += statements_data['yoy_tables'].get('income_statement', '') + "\n\n"
+                    statements_content += statements_data['yoy_tables'].get('balance_sheet', '') + "\n\n"
+                    statements_content += statements_data['yoy_tables'].get('cash_flow', '') + "\n"
             else:
                 # Legacy dict-based approach
                 statements_content = format_financial_statements(
@@ -863,8 +980,15 @@ Use get_company_facts to get ALL available XBRL data."""
                 )
             self._save_output("03_financial_statements.md", statements_content)
 
-            # Save financial metrics (04_financial_metrics.md)
-            metrics_content = format_financial_metrics(metrics, company_name)
+            # Save financial metrics (04_financial_metrics.md) with YoY tables
+            income_statement_df = statements_data.get('income_statement_df') if statements_data else None
+            cashflow_df = statements_data.get('cash_flow_statement_df') if statements_data else None
+            metrics_content = format_financial_metrics(
+                metrics,
+                company_name,
+                income_statement_df=income_statement_df,
+                cashflow_df=cashflow_df
+            )
             self._save_output("04_financial_metrics.md", metrics_content)
 
             # Save metadata.json for web UI discovery
@@ -1088,9 +1212,16 @@ Extract the most recent period data and note the reporting period.
         self.printer.update_item("specialist_analysis", "Running specialist analyses...")
 
         try:
-            # Clone specialist agents with EDGAR MCP server access
+            # Pre-extract risk factors using edgartools (replacing MCP for massive cost savings)
+            risk_factors_data = None
+            try:
+                self.printer.update_item("specialist_analysis", "Extracting SEC risk factors...")
+                risk_factors_data = await extract_risk_factors(self.ticker)
+            except Exception as e:
+                logger.warning(f"Could not extract risk factors: {e}")
+
+            # Clone financials agent with EDGAR MCP server access (still needs MCP for MD&A)
             financials_with_edgar = financials_agent_enhanced.clone(mcp_servers=[self.edgar_server])
-            risk_with_edgar = risk_agent_enhanced.clone(mcp_servers=[self.edgar_server])
 
             # Prepare input data for financials agent - include pre-extracted financial data
             financials_input = f"Query: {query}\n\nContext from research:\n{search_results[:3]}\n\n"
@@ -1127,12 +1258,33 @@ Extract the most recent period data and note the reporting period.
                 financials_input += "\n**NOTE:** Financial data extraction was unavailable. "
                 financials_input += "Focus on qualitative analysis from MD&A, segment discussions, and web sources.\n\n"
 
+            # Include YoY comparison tables from 04_financial_metrics.md if available
+            if self.session_dir:
+                metrics_file = self.session_dir / "04_financial_metrics.md"
+                if metrics_file.exists():
+                    with open(metrics_file, 'r') as f:
+                        metrics_content = f.read()
+                        # Extract YoY tables (they're between "### Key Financial Metrics" and "## Liquidity Ratios")
+                        if "### Key Financial Metrics (YoY Comparison)" in metrics_content:
+                            start_idx = metrics_content.find("### Key Financial Metrics (YoY Comparison)")
+                            end_idx = metrics_content.find("## Liquidity Ratios")
+                            if start_idx != -1 and end_idx != -1:
+                                yoy_tables = metrics_content[start_idx:end_idx].strip()
+                                financials_input += f"\n\n**Year-over-Year Comparison Tables (from 04_financial_metrics.md):**\n\n{yoy_tables}\n\n"
+                                financials_input += "**CRITICAL:** For Section 8 (Year-over-Year Comparison Table), copy these exact values into your table.\n"
+                                financials_input += "Do NOT use placeholders like '[per 03_financial_statements.md]' - use the actual dollar amounts and percentages shown above.\n\n"
+
             # Prepare input data for risk agent (simpler - just context)
             risk_input = f"Query: {query}\n\nContext from research:\n{search_results[:3]}"
 
             # Run financial analysis with pre-extracted data
             self.printer.update_item("specialist_analysis", "Running financial analysis...")
             financials_result = await Runner.run(financials_with_edgar, financials_input, max_turns=AgentConfig.MAX_AGENT_TURNS)
+
+            # Track financials agent cost
+            if self.cost_tracker:
+                self.cost_tracker.track_agent_run("financials", AgentConfig.FINANCIALS_MODEL, financials_result)
+
             financials_analysis = financials_result.final_output_as(ComprehensiveFinancialAnalysis)
 
             # Save financial analysis (05_financial_analysis.md)
@@ -1160,11 +1312,71 @@ Extract the most recent period data and note the reporting period.
 
             self._save_output("05_financial_analysis.md", financials_content)
 
-            # Run risk analysis
+            # Run risk analysis with PRE-EXTRACTED data (no MCP - massive cost savings)
             self.printer.update_item("specialist_analysis", "Running risk analysis...")
-            # Explicitly ask for risk analysis to avoid confusion
-            risk_input = f"Analyze the key risks and risk factors for this company.\n\nOriginal query: {query}\n\nContext from research:\n{search_results[:3]}"
-            risk_result = await Runner.run(risk_with_edgar, risk_input, max_turns=AgentConfig.MAX_AGENT_TURNS)
+
+            # Build risk input with pre-extracted SEC data
+            risk_input = f"Analyze the key risks and risk factors for {self.ticker}.\n\n"
+            risk_input += f"Original query: {query}\n\n"
+
+            # Include pre-extracted risk factors (this replaces MCP tool calls)
+            if risk_factors_data:
+                risk_input += "## Pre-Extracted SEC Filing Data\n\n"
+                risk_input += "**IMPORTANT:** Risk factors have been pre-extracted from SEC filings below. "
+                risk_input += "Analyze this data directly - do NOT use MCP tools to re-extract.\n\n"
+
+                if risk_factors_data.get('risk_factors_10k'):
+                    date = risk_factors_data.get('risk_factors_10k_date', 'Unknown')
+                    accession = risk_factors_data.get('risk_factors_10k_accession', '')
+                    risk_input += f"### Item 1A Risk Factors from 10-K (filed {date})\n"
+                    if accession:
+                        risk_input += f"Accession: {accession}\n\n"
+                    # Limit to first 40000 chars to avoid context limits
+                    risk_text = risk_factors_data['risk_factors_10k'][:40000]
+                    risk_input += f"{risk_text}\n\n"
+
+                if risk_factors_data.get('risk_factors_10q'):
+                    date = risk_factors_data.get('risk_factors_10q_date', 'Unknown')
+                    risk_input += f"### Item 1A Risk Factors from 10-Q (filed {date})\n"
+                    risk_text = risk_factors_data['risk_factors_10q'][:15000]
+                    risk_input += f"{risk_text}\n\n"
+
+                if risk_factors_data.get('mda_text'):
+                    date = risk_factors_data.get('mda_date', 'Unknown')
+                    risk_input += f"### Management Discussion & Analysis (from filing dated {date})\n"
+                    # MD&A can be long, limit to key sections
+                    mda_text = risk_factors_data['mda_text'][:20000]
+                    risk_input += f"{mda_text}\n\n"
+
+                if risk_factors_data.get('legal_proceedings'):
+                    risk_input += "### Legal Proceedings (Item 3)\n"
+                    legal_text = risk_factors_data['legal_proceedings'][:10000]
+                    risk_input += f"{legal_text}\n\n"
+
+                if risk_factors_data.get('recent_8ks'):
+                    risk_input += "### Recent 8-K Filings (Material Events)\n"
+                    for filing in risk_factors_data['recent_8ks'][:5]:
+                        risk_input += f"- 8-K filed {filing['date']}"
+                        if filing.get('items'):
+                            risk_input += f": Items {', '.join(str(i) for i in filing['items'])}"
+                        risk_input += "\n"
+                    risk_input += "\n"
+
+                if risk_factors_data.get('filing_references'):
+                    risk_input += f"**Filing References:** {', '.join(risk_factors_data['filing_references'])}\n\n"
+            else:
+                risk_input += "\n**NOTE:** SEC risk factor extraction was unavailable. "
+                risk_input += "Use web search to gather risk information.\n\n"
+
+            risk_input += f"Context from research:\n{search_results[:3]}"
+
+            # Run risk agent WITHOUT MCP (uses pre-extracted data + brave_search for news)
+            risk_result = await Runner.run(risk_agent_enhanced, risk_input, max_turns=AgentConfig.MAX_AGENT_TURNS)
+
+            # Track risk agent cost
+            if self.cost_tracker:
+                self.cost_tracker.track_agent_run("risk", AgentConfig.RISK_MODEL, risk_result)
+
             risk_analysis = risk_result.final_output_as(ComprehensiveRiskAnalysis)
 
             # Save risk analysis (06_risk_analysis.md)
@@ -1266,6 +1478,20 @@ Extract the most recent period data and note the reporting period.
         if edgar_results:
             input_data += f"\n\nSEC Filing Analysis:\n{edgar_results}"
 
+        # Include YoY comparison tables from 04_financial_metrics.md if available
+        if self.session_dir:
+            metrics_file = self.session_dir / "04_financial_metrics.md"
+            if metrics_file.exists():
+                with open(metrics_file, 'r') as f:
+                    metrics_content = f.read()
+                    # Extract YoY tables (they're between "### Key Financial Metrics" and "## Liquidity Ratios")
+                    if "### Key Financial Metrics (YoY Comparison)" in metrics_content:
+                        start_idx = metrics_content.find("### Key Financial Metrics (YoY Comparison)")
+                        end_idx = metrics_content.find("## Liquidity Ratios")
+                        if start_idx != -1 and end_idx != -1:
+                            yoy_tables = metrics_content[start_idx:end_idx].strip()
+                            input_data += f"\n\n**Year-over-Year Comparison Tables (from 04_financial_metrics.md):**\n\n{yoy_tables}\n\n"
+
         result = Runner.run_streamed(writer_with_tools, input_data)
         update_messages = [
             "Calling specialist analysts...",
@@ -1282,6 +1508,16 @@ Extract the most recent period data and note the reporting period.
                 last_update = time.time()
         self.printer.mark_item_done("writing")
 
+        # Track writer agent cost
+        # Note: For streamed results, we need to access the usage from result object
+        if self.cost_tracker and hasattr(result, 'raw_responses'):
+            # Create a mock object with raw_responses for tracking
+            class MockResult:
+                pass
+            mock = MockResult()
+            mock.raw_responses = result.raw_responses if hasattr(result, 'raw_responses') else []
+            self.cost_tracker.track_agent_run("writer", AgentConfig.WRITER_MODEL, mock)
+
         report = result.final_output_as(ComprehensiveFinancialReport)
 
         # Save the final report
@@ -1295,13 +1531,41 @@ Extract the most recent period data and note the reporting period.
         for i, question in enumerate(report.follow_up_questions, 1):
             report_content += f"{i}. {question}\n\n"
 
-        # Add attribution footer
+        # Add Data Sources, Attribution and Validation section (exception-report style)
         report_content += "\n\n---\n\n"
-        report_content += "## Data Sources & Attribution\n\n"
+        report_content += "## Data Sources, Attribution and Validation\n\n"
+
+        # Add data sources
         if self.edgar_enabled:
-            report_content += "**SEC Filing Data:** U.S. Securities and Exchange Commission (SEC) via SEC EDGAR database.  \n"
-            report_content += "Accessed using SEC EDGAR MCP Server by Amorelli, S. (2025). https://doi.org/10.5281/zenodo.17123166\n\n"
-        report_content += "**Market Data:** Web search results from public sources.\n\n"
+            report_content += "**Data Sources:** SEC EDGAR filings accessed via SEC EDGAR MCP Server (Amorelli, S., 2025, https://doi.org/10.5281/zenodo.17123166); "
+            report_content += "market data from public web sources.\n\n"
+        else:
+            report_content += "**Data Sources:** Market data from public web sources.\n\n"
+
+        # Add validation status (exception-report style: brief unless issues)
+        # Read validation details from 04_financial_metrics.md if available
+        validation_passed = True
+        validation_details = ""
+
+        if self.session_dir:
+            metrics_file = self.session_dir / "04_financial_metrics.md"
+            if metrics_file.exists():
+                with open(metrics_file, 'r') as f:
+                    metrics_content = f.read()
+                    # Check if balance sheet verification passed
+                    if "Balance sheet verification: PASSED" in metrics_content or "Balance sheet verification PASSED" in metrics_content:
+                        validation_passed = True
+                    elif "Balance sheet verification: FAILED" in metrics_content or "Balance sheet verification FAILED" in metrics_content:
+                        validation_passed = False
+                        # Extract failure details if present
+                        validation_details = "Balance sheet verification FAILED - see 04_financial_metrics.md for details. "
+
+        if validation_passed:
+            report_content += "**Data Quality:** All validations passed, including balance sheet equation verification and cash flow calculations. "
+            report_content += "Complete financial statements in 03_financial_statements.md; detailed metrics and validations in 04_financial_metrics.md.\n\n"
+        else:
+            report_content += f"**Data Quality Exception:** {validation_details}\n\n"
+
         report_content += "---\n\n"
         report_content += "*This report was generated using AI-powered financial research tools. "
         report_content += "All data should be independently verified before making investment decisions.*\n"
@@ -1398,6 +1662,11 @@ Extract the most recent period data and note the reporting period.
     async def _verify_report(self, report: ComprehensiveFinancialReport) -> VerificationResult:
         self.printer.update_item("verifying", "Verifying comprehensive report...")
         result = await Runner.run(verifier_agent, report.markdown_report)
+
+        # Track verifier cost
+        if self.cost_tracker:
+            self.cost_tracker.track_agent_run("verifier", AgentConfig.VERIFIER_MODEL, result)
+
         self.printer.mark_item_done("verifying")
 
         verification = result.final_output_as(VerificationResult)

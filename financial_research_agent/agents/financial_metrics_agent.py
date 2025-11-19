@@ -219,7 +219,22 @@ Your response must be a valid FinancialMetrics object with:
    - company_name: Company name from statements (optional)
    - sic_code: SIC code from statements (optional)
 
-7. **calculation_notes** (list[str]): Any issues encountered
+7. **Balance Sheet Verification** (from verification dict returned by tool):
+   - balance_sheet_verified: verification['passed'] (bool)
+   - balance_sheet_verification_error: verification['difference_pct'] (float, e.g., 0.0000 for perfect match)
+   - balance_sheet_total_assets: verification['assets'] (float)
+   - balance_sheet_total_liabilities: verification['liabilities'] (float)
+   - balance_sheet_total_equity: verification['equity'] (float)
+   **CRITICAL**: These fields verify the fundamental accounting equation: Assets = Liabilities + Equity
+
+8. **Free Cash Flow Calculation** (from cash_flow_statement dict):
+   - fcf_operating_cash_flow: cash_flow_statement['NetCashProvidedByUsedInOperatingActivities_Current'] or similar
+   - fcf_capital_expenditures: cash_flow_statement['PaymentsToAcquirePropertyPlantAndEquipment_Current'] or similar (should be positive)
+   - fcf_free_cash_flow: OCF - CapEx (calculate this explicitly)
+   **CRITICAL**: These fields enable explicit FCF calculation display: FCF = Operating Cash Flow - Capital Expenditures
+   **NOTE**: CapEx is typically reported as a negative number in cash flow statements, so use absolute value for display
+
+9. **calculation_notes** (list[str]): Any issues encountered
    - e.g., ["Quick ratio approximated using cash ratio (inventory data unavailable)"]
 
 The current datetime is {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
@@ -236,10 +251,11 @@ For query "Calculate financial metrics for Apple":
    - etc.
 4. Extract statements for balance_sheet, income_statement, cash_flow_statement
 5. Extract company_name and sic_code from tool response
-6. Write executive_summary based on ratio analysis
-7. Determine period and filing_reference from statements metadata
-8. Add calculation_notes for any missing data
-9. Return complete FinancialMetrics object
+6. Extract balance sheet verification data from verification dict
+7. Write executive_summary based on ratio analysis
+8. Determine period and filing_reference from statements metadata
+9. Add calculation_notes for any missing data
+10. Return complete FinancialMetrics object
 
 Remember: The tool does all the heavy lifting (data extraction, ratio calculations).
 Your job is to interpret the results and structure them properly.
@@ -331,6 +347,32 @@ class FinancialMetrics(BaseModel):
 
     calculation_notes: list[str]
     """Notes explaining missing ratios or data issues (e.g., 'Quick ratio not calculated: inventory data unavailable')"""
+
+    # Balance Sheet Verification
+    balance_sheet_verified: bool
+    """Whether the balance sheet equation (Assets = Liabilities + Equity) passed verification"""
+
+    balance_sheet_verification_error: float | None
+    """Percentage difference in balance sheet equation (should be < 0.1%)"""
+
+    balance_sheet_total_assets: float | None
+    """Total Assets from balance sheet verification"""
+
+    balance_sheet_total_liabilities: float | None
+    """Total Liabilities from balance sheet verification"""
+
+    balance_sheet_total_equity: float | None
+    """Total Stockholders' Equity from balance sheet verification"""
+
+    # Free Cash Flow Calculation
+    fcf_operating_cash_flow: float | None = None
+    """Operating Cash Flow (OCF) from cash flow statement"""
+
+    fcf_capital_expenditures: float | None = None
+    """Capital Expenditures (CapEx) - payments for PP&E"""
+
+    fcf_free_cash_flow: float | None = None
+    """Free Cash Flow = OCF - CapEx"""
 
     # Complete Financial Statements (for separate file output)
     balance_sheet: dict[str, Any]

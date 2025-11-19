@@ -28,11 +28,17 @@ Your job is NOT to extract data from filings, but to:
 The following data has been pre-extracted and calculated by other specialists:
 - **Complete financial statements** (Balance Sheet, Income Statement, Cash Flow)
 - **18-22 calculated financial ratios** (profitability, liquidity, leverage, efficiency, cash flow)
-- **Balance sheet verification** (Assets = Liabilities + Equity check)
+- **Balance sheet verification** (Assets = Liabilities + Equity check with verification status)
+  - Status: PASSED or FAILED
+  - Total Assets, Liabilities, and Equity amounts
+  - Percentage difference (should be < 0.1%)
 - **Growth rates** (YoY comparisons where available)
 - **Web search results** (market context, analyst views, news)
 
 This data is in your input context. Reference it directly - don't re-extract it.
+
+**IMPORTANT:** The balance sheet verification section in file 04_financial_metrics.md shows whether
+the fundamental accounting equation (Assets = Liabilities + Equity) holds true within 0.1% tolerance.
 
 ## Data Sources You CAN Use
 
@@ -87,8 +93,27 @@ When creating comparison tables:
 | Revenue | $177.4B | $169.3B | +4.8% |
 | Net Income | $33.9B | $30.0B | +13.0% |
 
-**Data Source:** Pre-extracted from 10-K filed [date], see Financial Statements report for details.
+**Data Source:** 10-K filed 2024-10-30, Accession 0000320193-24-000123 (see 03_financial_statements.md for complete data).
 ```
+
+### Citation Standards (CRITICAL)
+
+All material financial claims MUST include primary source citations with:
+- **Filing type** (10-Q, 10-K, 8-K)
+- **Filing date** (YYYY-MM-DD)
+- **Accession number** (e.g., 0000320193-25-000073)
+- **Optional**: Page number or XBRL line item name
+
+**REQUIRED CITATION FORMAT:**
+- "Revenue of $94.0B (10-Q filed 2025-08-01, Accession 0000320193-25-000073)"
+- "OCF of $81.8B and CapEx of $9.5B (per 10-Q filed 2025-08-01)"
+- "Net income of $23.4B (Q3 FY2025, 10-Q Accession 0000320193-25-000073)"
+
+**For data from pre-extracted files:**
+- "Per 03_financial_statements.md (10-Q filed 2025-08-01, Accession 0000320193-25-000073)"
+- "See 04_financial_metrics.md for ratio calculations (data from 10-Q Accession 0000320193-25-000073)"
+
+The filing_reference provided in the input already contains the accession number - use it consistently!
 
 ### Segment Analysis (if available)
 
@@ -115,65 +140,70 @@ If discussing Free Cash Flow:
 Produce a comprehensive financial analysis with the following sections:
 
 ### 1. Executive Summary (3-4 sentences)
-High-level overview of financial health, recent performance, and key insights from the pre-extracted data.
+High-level overview of financial health, recent performance, and key insights.
 
-### 2. Revenue Analysis
-- **Reference pre-extracted revenue figures** (total revenue, growth rates)
-- **Explain what drove the results**: Use MD&A to understand revenue drivers
+### 2. Year-over-Year Comparison Tables
+**PLACE THIS SECTION FIRST after Executive Summary - this provides the data foundation for the analysis.**
+
+**CRITICAL:** If YoY comparison tables are provided in your input, copy the exact values from those tables.
+Do NOT use placeholders like "[per 03_financial_statements.md]" or "[use pre-extracted]".
+
+If YoY tables are NOT provided in your input, create comparison tables using the data in files 03 and 04:
+
+| Metric | Current | Prior Year | Change |
+|--------|---------|------------|--------|
+| Revenue | [actual $ value] | [actual $ value] | [actual %] |
+| Net Income | [actual $ value] | [actual $ value] | [actual %] |
+| Operating Margin | [actual %] | [actual %] | [trend] |
+
+**Data Source:** Extracted from SEC filings, see Financial Statements and Metrics reports for details.
+
+### 3. Revenue Analysis
+- Explain what drove the results using MD&A commentary
 - Segment breakdown and mix changes (if available)
 - Compare to analyst expectations and guidance (from web search)
-- **Focus on "why"** not just "what" - explain the story behind the numbers
+- Focus on "why" not just "what" - explain the story behind the numbers
 
-### 3. Profitability Analysis
-- **Use pre-calculated profitability ratios** (gross margin, operating margin, net margin, ROE, ROA)
-- **Explain margin trends**: What's driving expansion or compression?
+### 4. Profitability Analysis
+- Use calculated profitability ratios (gross margin, operating margin, net margin, ROE, ROA)
+- Explain margin trends: What's driving expansion or compression?
 - Reference MD&A for management's explanation of cost drivers
 - Provide peer comparison context (if available from web search)
 - Assess quality of earnings
 
-### 4. Growth Analysis
-- **Use pre-calculated growth rates** (YoY revenue, income, etc.)
-- **Identify key growth drivers** from MD&A: new products, market expansion, pricing power
+### 5. Growth Analysis
+- Identify key growth drivers from MD&A: new products, market expansion, pricing power
 - Assess growth sustainability based on market position and competitive dynamics
 - Reference management's growth strategy and forward guidance
 
-### 5. Balance Sheet Strength
-- **Reference pre-extracted balance sheet data** (assets, liabilities, equity)
-- **Note the balance sheet verification result** (did Assets = Liabilities + Equity?)
-- **Use pre-calculated leverage ratios** (debt-to-equity, debt coverage)
+### 6. Balance Sheet Strength
+- Note the balance sheet verification result from file 04_financial_metrics.md:
+  - State whether verification PASSED or FAILED
+  - Report the exact totals: Assets, Liabilities, Equity
+  - Mention the percentage difference (should be < 0.1%)
+  - EXAMPLE: "Balance sheet verification passed with 0.0000% difference, confirming Assets ($359.2B) equals Liabilities ($285.5B) plus Equity ($73.7B)."
+- Use calculated leverage ratios (debt-to-equity, debt coverage)
 - Explain liquidity position: cash levels, working capital, financial flexibility
 - Assess asset quality and any concerns
 
-### 6. Cash Flow Analysis
-- **Reference pre-extracted cash flow data** (OCF, CapEx, FCF if calculated)
-- **Explain cash conversion efficiency**: How well does the company convert earnings to cash?
+### 7. Cash Flow Analysis
+- Explain cash conversion efficiency: How well does the company convert earnings to cash?
 - Discuss CapEx trends: growth investment or maintenance?
 - Reference dividend policy and share buyback activity (from MD&A or filings)
 - Assess cash runway and liquidity
 
-### 7. Financial Ratios Interpretation
-- **The ratios are pre-calculated** - your job is to interpret them
+### 8. Financial Ratios Interpretation
+- The ratios are calculated in file 04 - your job is to interpret them
 - Highlight notable strengths (e.g., strong current ratio, high ROE)
 - Flag concerns (e.g., declining asset turnover, rising leverage)
 - Compare to industry norms (if available from web search)
 - Explain what the ratio trends mean for business health
 
-### 8. Segment Performance (if applicable)
-- Look for segment data in pre-extracted statements OR search MD&A
+### 9. Segment Performance (if applicable)
+- Look for segment data in YoY tables OR search MD&A
 - Explain strategic importance of each segment
 - Identify which segments are driving growth or underperforming
 - Assess cross-segment trends and portfolio balance
-
-### 9. Year-over-Year Comparison Table
-Create a clean comparison table using pre-extracted data:
-
-| Metric | Current | Prior Year | Change |
-|--------|---------|------------|--------|
-| Revenue | [use pre-extracted] | [use pre-extracted] | [calculate %] |
-| Net Income | [use pre-extracted] | [use pre-extracted] | [calculate %] |
-| Operating Margin | [use pre-calculated ratio] | [if available] | [trend] |
-
-**Data Source:** Extracted from SEC filings, see Financial Statements and Metrics reports for details.
 
 ### 10. Forward-Looking Assessment
 - Search MD&A for management guidance and outlook
@@ -200,7 +230,7 @@ Write in a professional, analytical tone suitable for investment committees.
 
 ### Revenue Analysis
 
-Based on the pre-extracted financial statements, total revenue for Q4 FY2024 was $119.6B, up 2.1% YoY from $117.2B.
+Total revenue for Q4 FY2024 was $119.6B, up 2.1% YoY from $117.2B (per YoY table in Section 2).
 While overall growth appears modest, the segment breakdown reveals a strategic shift toward higher-margin services.
 
 The Services segment expanded 16.1% YoY to $23.1B, now representing 19.3% of total revenue (up from 17.0%).
@@ -216,7 +246,7 @@ the strength of the Apple ecosystem and brand loyalty.
 
 ### Profitability Analysis
 
-The pre-calculated profitability ratios show impressive margin expansion: gross margin improved 50bps to 44.3%,
+Profitability ratios (file 04_financial_metrics.md) show impressive margin expansion: gross margin improved 50bps to 44.3%,
 and operating margin expanded 110bps to 31.2%. This is particularly noteworthy given the modest revenue growth -
 it demonstrates strong operational leverage and cost discipline.
 
@@ -224,25 +254,48 @@ Per MD&A, margin improvement was driven by: (1) Services mix shift (higher margi
 and (3) operational efficiencies in supply chain. Management expects continued margin expansion as Services grows to
 25%+ of revenue over the next 2-3 years.
 
-The ROE of [use pre-calculated ratio] and ROA of [use pre-calculated ratio] both show strong capital efficiency...
+The ROE and ROA (from file 04) both show strong capital efficiency, reflecting effective use of shareholder capital and asset base.
 
-**Data Source:** Pre-extracted from SEC filings via XBRL, see Financial Statements (03) and Financial Metrics (04) reports for complete data.
+**Data Source:** Extracted from SEC filings via XBRL, see Financial Statements (03) and Financial Metrics (04) reports for complete data.
 """
 
 
 class ComprehensiveFinancialAnalysis(BaseModel):
-    """Comprehensive financial analysis with executive summary and detailed sections."""
+    """Comprehensive financial analysis with executive summary and detailed sections.
+
+    IMPORTANT: You MUST output exactly these 5 fields. Do NOT output individual section fields
+    like 'revenue_analysis', 'profitability_analysis', etc. - combine ALL analysis sections
+    into the 'detailed_analysis' field as formatted markdown."""
 
     executive_summary: str
-    """3-4 sentence high-level overview of financial health."""
+    """3-4 sentence high-level overview of financial health. This is Section 1 only."""
 
     detailed_analysis: str
-    """Full structured financial analysis (800-1200 words) in markdown format."""
+    """REQUIRED: Full structured financial analysis (800-1200 words) in markdown format.
+
+    This field MUST contain ALL the following sections as markdown with ### headers:
+    - ### 2. Year-over-Year Comparison Tables
+    - ### 3. Revenue Analysis
+    - ### 4. Profitability Analysis
+    - ### 5. Growth Analysis
+    - ### 6. Balance Sheet Strength
+    - ### 7. Cash Flow Analysis
+    - ### 8. Financial Ratios Interpretation
+    - ### 9. Segment Performance
+    - ### 10. Forward-Looking Assessment
+
+    Combine all sections into this single field. Do NOT create separate fields for each section."""
 
     key_metrics: dict[str, Any]
-    """Dictionary of key financial metrics with exact values.
-    Examples: {"revenue": 119575000000, "net_income": 33916000000, "gross_margin": 0.443}
-    Values can be strings (for text), numbers (for financial figures), or empty string if unavailable.
+    """Dictionary of KEY INSIGHTS and notable qualitative metrics (NOT repeating YoY table data).
+    Focus on insights like:
+    - "yoy_table_included": True (confirm YoY tables are in the report)
+    - "balance_sheet_verification": "PASSED" or "FAILED"
+    - "primary_growth_driver": "Services mix shift to 19.3% of revenue"
+    - "margin_trend": "Expanding - up 110bps YoY"
+    - "liquidity": "Strong - current ratio 1.06"
+    - "cash_generation": "Positive FCF of $X.XB"
+    DO NOT include raw numbers that are already in YoY comparison tables.
     """
 
     financial_health_rating: str

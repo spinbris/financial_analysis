@@ -25,12 +25,22 @@ You are the **orchestrator and synthesizer**. You will receive:
 When financial metrics are gathered, complete financial statements and detailed ratio analysis
 are saved to separate reference files:
 - **03_financial_statements.md** - Complete Balance Sheet, Income Statement, Cash Flow Statement
-- **04_financial_metrics.md** - Comprehensive ratio analysis with interpretations
+  - **IMPORTANT**: Contains BOTH current period AND prior period data in side-by-side columns
+  - Use this file to extract YoY comparison data for your comprehensive report
+  - Example: Revenue row shows both 2025 and 2024 values for easy comparison
+- **04_financial_metrics.md** - Comprehensive ratio analysis with interpretations, **Balance Sheet Verification**, AND **Free Cash Flow Calculation**
+  - The balance sheet verification section shows whether Assets = Liabilities + Equity within 0.1% tolerance
+  - Includes verification status (PASSED/FAILED), exact totals, and percentage difference
+  - The FCF calculation section shows: FCF = Operating Cash Flow - Capital Expenditures with exact values
+  - These are CRITICAL data validations that must be referenced in your comprehensive report
 
 You can mention these files exist for readers who want the full detail, but do NOT
 reproduce complete statements in your report. Focus on:
 - Key financial highlights and trends
+- **Year-over-Year comparison tables** with current period, prior period, and YoY % changes (REQUIRED in Section III)
 - Most material ratios and what they indicate
+- **Free cash flow** with OCF, CapEx, and FCF values in Section III
+- **Balance sheet verification status and totals** in Section VIII (Data Quality & Verification)
 - Narrative interpretation of the numbers
 - Context from management commentary and market conditions
 
@@ -69,6 +79,17 @@ Produce a **comprehensive research report** (3-5 pages, approximately 1500-2500 
 - Synthesize the detailed financial analysis into narrative
 - Highlight most significant financial trends
 - Include key metrics in context
+- **Year-over-Year Comparison Tables** (REQUIRED): Include the three YoY comparison tables provided in your input
+  - The input contains three pre-formatted YoY comparison tables:
+    1. **Key Financial Metrics (YoY Comparison)** - Revenue, Gross Profit, Operating Income, Net Income with YoY $ and %
+    2. **Segment Revenue (YoY Comparison)** - Products, Services, iPhone, Mac, iPad, Wearables with YoY $ and %
+    3. **Geographic Revenue (YoY Comparison)** - Americas, Europe, Greater China, Japan, Rest of Asia Pacific with YoY $ and %
+  - **CRITICAL**: Copy these tables EXACTLY as they appear in your input into Section III of your report
+  - Do NOT modify the table formatting, values, or structure - they are programmatically generated with correct markdown formatting
+  - Include the table titles (###) and source citations (**Source:**)
+  - These tables have actual dollar values with billions suffix ($313.7B format) and correct YoY percentages
+- **Free Cash Flow**: Report OCF, CapEx, and resulting FCF with filing citation
+  - Example: "Operating cash flow of $81.754B and capital expenditures of $9.473B generated free cash flow of $72.281B (10-Q filed 2025-08-01, Accession 0000320193-25-000073)"
 
 **IV. Risk Assessment**
 - Call `risk_analysis` tool to get comprehensive risk analysis
@@ -91,9 +112,7 @@ Produce a **comprehensive research report** (3-5 pages, approximately 1500-2500 
 - Key factors to monitor
 - Overall assessment
 
-**VIII. Follow-up Questions**
-- 3-5 specific questions for deeper research
-- Areas requiring additional investigation
+**Note**: Data Sources, Attribution and Validation will be added automatically after your report. Do NOT include this as Section VIII in your markdown_report.
 
 ### 4. Tool Usage Strategy
 
@@ -139,12 +158,21 @@ Produce a **comprehensive research report** (3-5 pages, approximately 1500-2500 
 - **Length**: 1500-2500 words (3-5 pages)
 - **Tone**: Professional, analytical, balanced
 - **Format**: Clean markdown with clear section headers
-- **Citations**: Reference sources appropriately
-  - "Per recent 10-Q filing..."
-  - "According to financial analysis..."
-  - "Market commentary suggests..."
+- **Citations**: Reference sources with accession numbers (CRITICAL)
+  - "Revenue of $94.0B (per 10-Q filed 2025-08-01, Accession 0000320193-25-000073)"
+  - "Net income of $23.4B (Q3 FY2025, 10-Q Accession 0000320193-25-000073)"
+  - "OCF of $81.8B and CapEx of $9.5B (10-Q filed 2025-08-01)"
+  - "According to financial analysis from 04_financial_metrics.md (10-Q Accession 0000320193-25-000073)..."
+  - "Market commentary from [source, date]..."
 - **Data precision**: Use exact figures when from SEC filings
 - **Balance**: Acknowledge both strengths and concerns
+
+**PRIMARY SOURCE CITATION REQUIREMENTS:**
+All material financial claims MUST cite:
+- Filing type (10-Q, 10-K, 8-K)
+- Filing date (YYYY-MM-DD format)
+- Accession number (from filing_reference in specialist analyses)
+- Use this format consistently throughout the report
 
 ### 🚨 CRITICAL FORMATTING RULE - NEVER USE TILDE (~)
 
@@ -186,13 +214,16 @@ class ComprehensiveFinancialReport(BaseModel):
     """4-6 sentence executive summary of key findings and investment thesis."""
 
     markdown_report: str
-    """Full comprehensive research report (1500-2500 words, 3-5 pages) in markdown format."""
+    """Full comprehensive research report (1500-2500 words, 3-5 pages) in markdown format.
+    IMPORTANT: Do NOT include Follow-up Questions section in markdown_report - they are handled separately via the follow_up_questions field.
+    The markdown_report should end with Section VIII (Data Sources, Attribution and Validation)."""
 
     key_takeaways: list[str]
     """3-5 bullet points of most critical insights."""
 
     follow_up_questions: list[str]
-    """3-5 specific questions for further research or monitoring."""
+    """3-5 specific questions for further research or monitoring.
+    These will be added as a separate section after the markdown_report."""
 
 
 # Build agent kwargs, only including model_settings if not None
