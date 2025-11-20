@@ -437,6 +437,21 @@ async def extract_financial_data_enhanced(
     except Exception:
         fiscal_year_end = current_period
 
+    # Extract fiscal period information from XBRL entity_info
+    fiscal_year = None
+    fiscal_period = None
+    is_annual = False
+    is_quarterly = False
+    try:
+        if hasattr(xbrl, 'entity_info'):
+            entity_info = xbrl.entity_info
+            fiscal_year = entity_info.get('fiscal_year')
+            fiscal_period = entity_info.get('fiscal_period')
+            is_annual = entity_info.get('annual_report', False)
+            is_quarterly = entity_info.get('quarterly_report', False)
+    except Exception:
+        pass  # If entity_info not available, continue without it
+
     # Return enhanced structure
     return {
         # Standard DataFrames (backward compatible)
@@ -460,6 +475,12 @@ async def extract_financial_data_enhanced(
         'company_name': company_name_official,
         'fiscal_year_end': fiscal_year_end,
         'is_foreign_filer': form_type == '20-F',
+
+        # Fiscal period information from XBRL
+        'fiscal_year': fiscal_year,
+        'fiscal_period': fiscal_period,
+        'is_annual_report': is_annual,
+        'is_quarterly_report': is_quarterly,
     }
 
 

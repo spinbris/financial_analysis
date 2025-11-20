@@ -222,7 +222,7 @@ class CostTracker:
             json.dump(asdict(self.report), f, indent=2)
 
         # Save markdown summary
-        md_path = output_path / "08_cost_report.md"
+        md_path = output_path / "09_cost_report.md"
         md_content = self._generate_markdown_report()
         with open(md_path, 'w') as f:
             f.write(md_content)
@@ -263,15 +263,6 @@ class CostTracker:
 
 - **Cost per 1K tokens:** ${(report.total_cost / (report.total_tokens / 1000)) if report.total_tokens > 0 else 0:.4f}
 - **Estimated reports per $20:** {int(20 / report.total_cost) if report.total_cost > 0 else 0}
-
-### Comparison to Other Configs
-
-| Config | Est. Cost | Reports/$20 |
-|--------|-----------|-------------|
-| Standard (gpt-4.1 + o3-mini) | ~$0.80 | ~25 |
-| Budget (gpt-4o-mini for most) | ~$0.30 | ~66 |
-| Together AI | ~$0.15 | ~133 |
-| **This Run** | **${report.total_cost:.4f}** | **{int(20 / report.total_cost) if report.total_cost > 0 else 0}** |
 """
 
         return md

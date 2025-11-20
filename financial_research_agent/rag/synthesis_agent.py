@@ -6,7 +6,7 @@ This lightweight agent is optimized for conversational Q&A over the indexed fina
 
 from pydantic import BaseModel, Field
 from datetime import datetime
-from agents import Agent, Runner
+from agents import Agent, Runner, AgentOutputSchema
 
 # Import config to ensure .env is loaded
 from financial_research_agent import config  # noqa: F401
@@ -54,6 +54,10 @@ Synthesize the excerpts into a clear, accurate, and well-cited answer that:
 6. **Prioritizes KB over web** - Always prefer knowledge base data; use web only to fill gaps
 
 ## Response Guidelines
+
+### Formatting Rules:
+- **NEVER use tilde (`~`) for approximations** - it causes strikethrough rendering in Markdown
+- Use "approximately", "about", or "roughly" instead (e.g., "approximately $134.2B", NOT "~$134.2B")
 
 ### For Single-Company Queries:
 - Keep responses **concise** (2-4 paragraphs)
@@ -214,13 +218,18 @@ def create_rag_synthesis_agent(enable_web_search: bool = True) -> Agent:
 
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
+    # Build instructions by replacing current_time placeholder
+    # Don't use .format() to avoid errors with curly braces in user queries/context
+    instructions = RAG_SYNTHESIS_PROMPT.replace('{current_time}', current_time)
+
     # Build agent configuration
     # Use WRITER_MODEL from config (gpt-5 for quality synthesis)
+    # Wrap output type to disable strict JSON schema (dict types not supported in strict mode)
     agent_config = {
         "name": "RAG Synthesis Agent",
-        "instructions": RAG_SYNTHESIS_PROMPT.format(current_time=current_time),
+        "instructions": instructions,
         "model": AgentConfig.WRITER_MODEL,  # Use configured model (gpt-5 for OpenAI)
-        "output_type": RAGResponse
+        "output_type": AgentOutputSchema(RAGResponse, strict_json_schema=False)
     }
 
     # Add model settings if applicable (for GPT-5 reasoning models)

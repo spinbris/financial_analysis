@@ -960,6 +960,10 @@ Use get_company_facts to get ALL available XBRL data."""
                     current_period=statements_data.get('current_period', 'Current'),
                     prior_period=statements_data.get('prior_period'),
                     filing_reference=statements_data.get('filing_reference', 'Unknown'),
+                    fiscal_year=statements_data.get('fiscal_year'),
+                    fiscal_period=statements_data.get('fiscal_period'),
+                    is_quarterly_report=statements_data.get('is_quarterly_report', False),
+                    is_annual_report=statements_data.get('is_annual_report', False),
                 )
                 # Append YoY comparison tables
                 if statements_data.get('yoy_tables'):

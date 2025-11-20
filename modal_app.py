@@ -49,7 +49,7 @@ def analyze_company(
     ticker: str,
     force_refresh: bool = False,
     user_openai_key: str | None = None,
-    user_brave_key: str | None = None
+    user_brave_key: str | None = None,
 ) -> dict:
     """
     Analyze a company's latest financial performance.
@@ -250,6 +250,9 @@ def web_app():
             <head><title>Financial Research Agent</title></head>
             <body>
                 <h1>Financial Research Agent API</h1>
+                <p><strong>Analysis Cost:</strong> ~$0.50/report</p>
+                <p><em>Educational/research prototype - not financial advice<br>
+                Contact: stephen.parton@sjpconsulting.com</em></p>
                 <p>Endpoints:</p>
                 <ul>
                     <li>POST /api/query - Query ChromaDB</li>
@@ -331,7 +334,7 @@ def web_app():
             "ticker": req.ticker,
             "using_user_keys": True,
             "message": f"Analysis for {req.ticker} queued with your API key. Check back in 5-10 minutes.",
-            "cost_note": f"Analysis will cost ~$0.08 (charged to your OpenAI account)",
+            "cost_note": "Analysis will cost ~$0.50 (charged to your OpenAI account)",
             "query_endpoint": "/api/query",
             "companies_endpoint": "/api/companies"
         }

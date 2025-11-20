@@ -587,6 +587,10 @@ def format_financial_statements_gt(
     current_period: str,
     prior_period: str | None,
     filing_reference: str,
+    fiscal_year: str | None = None,
+    fiscal_period: str | None = None,
+    is_quarterly_report: bool = False,
+    is_annual_report: bool = False,
 ) -> str:
     """
     Format complete financial statements as markdown from DataFrames.
@@ -602,13 +606,60 @@ def format_financial_statements_gt(
         current_period: Current period date (e.g., "2025-06-28")
         prior_period: Prior period date (e.g., "2024-09-28") or None
         filing_reference: Filing reference string
+        fiscal_year: Fiscal year from XBRL (e.g., "2025")
+        fiscal_period: Fiscal period from XBRL (e.g., "Q3")
+        is_quarterly_report: True if this is a quarterly report (10-Q)
+        is_annual_report: True if this is an annual report (10-K)
 
     Returns:
         Formatted markdown string with professionally styled tables
     """
+    # Helper to format descriptive period labels
+    def format_period_label(date_str: str, fiscal_year: str | None, fiscal_period: str | None, is_quarterly: bool) -> str:
+        """Format a period label with fiscal year/quarter info.
+
+        Examples:
+            "2025-06-28" + Q3 FY2025 → "Q3 FY2025 (ended June 28, 2025)"
+            "2024-09-30" + FY2024 → "FY2024 (ended September 30, 2024)"
+        """
+        from datetime import datetime
+
+        # Parse the date
+        try:
+            date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+            formatted_date = date_obj.strftime("%B %d, %Y")
+        except (ValueError, TypeError):
+            formatted_date = date_str
+
+        # Build the period label
+        if fiscal_period and fiscal_year:
+            # Check if fiscal_period already contains the fiscal year (e.g., "FY" for annual reports)
+            if fiscal_period.startswith("FY"):
+                # Annual: fiscal_period is "FY", so use "FY2025 (ended...)"
+                return f"FY{fiscal_year} (ended {formatted_date})"
+            else:
+                # Quarterly: fiscal_period is "Q3", so use "Q3 FY2025 (ended...)"
+                return f"{fiscal_period} FY{fiscal_year} (ended {formatted_date})"
+        elif fiscal_year and is_quarterly:
+            # Quarterly but no period: "FY2025 (ended June 28, 2025)"
+            return f"FY{fiscal_year} (ended {formatted_date})"
+        elif fiscal_year:
+            # Annual: "FY2024 (ended September 30, 2024)"
+            return f"FY{fiscal_year} (ended {formatted_date})"
+        else:
+            # Fallback: just the formatted date
+            return formatted_date
+
+    # Create descriptive period label for header
+    period_label = format_period_label(current_period, fiscal_year, fiscal_period, is_quarterly_report)
+
+    # Determine report type for clarity
+    report_type = "Quarterly Report (10-Q)" if is_quarterly_report else "Annual Report (10-K)" if is_annual_report else "Financial Report"
+
     output = f"# Financial Statements\n\n"
     output += f"**Company:** {company_name}  \n"
-    output += f"**Period:** {current_period}  \n"
+    output += f"**Period:** {period_label}  \n"
+    output += f"**Report Type:** {report_type}  \n"
     output += f"**Filing:** {filing_reference}  \n\n"
     output += "---\n\n"
 
@@ -627,8 +678,31 @@ def format_financial_statements_gt(
         # Build markdown table manually
         markdown = f"## {title}\n{subtitle}\n\n"
 
+        # Format column headers with fiscal period labels
+        # For Income Statement and Cash Flow: use quarter/year labels
+        # For Balance Sheet: just use formatted dates (it's a point-in-time snapshot)
+        formatted_headers = []
+        for i, col in enumerate(date_cols):
+            # Check if this is the current period (first column) or prior period
+            if i == 0 and current_period == col:
+                # Current period - use fiscal period if available
+                if "Balance Sheet" in title:
+                    # Balance sheet is point-in-time, just format the date nicely
+                    formatted_headers.append(format_period_label(col, fiscal_year, fiscal_period, is_quarterly_report))
+                else:
+                    # Income statement and cash flow are period results
+                    if is_quarterly_report:
+                        formatted_headers.append(format_period_label(col, fiscal_year, fiscal_period, True))
+                    elif is_annual_report:
+                        formatted_headers.append(f"FY{fiscal_year}" if fiscal_year else col)
+                    else:
+                        formatted_headers.append(col)
+            else:
+                # Prior periods - just format the date
+                formatted_headers.append(col)
+
         # Header row
-        markdown += "| Line Item | " + " | ".join(date_cols) + " |\n"
+        markdown += "| Line Item | " + " | ".join(formatted_headers) + " |\n"
         # Alignment row (left for line items, right for numbers)
         markdown += "|:----------|" + "----------:|" * len(date_cols) + "\n"
 

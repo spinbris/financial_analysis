@@ -62,8 +62,7 @@ class WebApp:
         self.current_reports = {}
         self.analysis_map = {}  # Map labels to directory paths
         self.session_id = None  # For API key management
-        from financial_research_agent.config import AgentConfig
-        self.llm_provider = AgentConfig.DEFAULT_PROVIDER  # Use config default
+        self.llm_provider = "openai"  # Only provider supported after simplification
 
     def get_existing_analyses(self):
         """Get list of existing analysis directories with company names."""
@@ -1820,7 +1819,7 @@ The following companies are not yet in the knowledge base:
                                 <h2 class="section-title">Run New Analysis</h2>
                             </div>
                         """)
-                        gr.Markdown("*Generate a comprehensive financial research report for any public company*")
+                        gr.Markdown("*Generate a comprehensive financial research report for any public company (takes 5-10 minutes)*")
 
                         query_input = gr.Textbox(
                             label="Company Ticker or Name",
