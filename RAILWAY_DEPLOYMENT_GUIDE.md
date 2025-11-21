@@ -14,6 +14,8 @@ This guide follows the **recommended approach** (direct domain to Railway).
 
 ## STEP 1: Clean Up for Railway Deployment
 
+**✅ COMPLETED**: Modal files removed, Groq support removed (OpenAI-only now)
+
 ### 1.1 Update .gitignore
 
 Add these lines to `.gitignore`:
@@ -184,16 +186,43 @@ python launch_web_app_with_auth.py
 
 ### 3.4 Add Environment Variables
 
-In Railway → **Variables** tab, add these:
+In Railway → **Variables** tab, add these **REQUIRED** variables:
 
 ```
+# AI Provider (Required)
 OPENAI_API_KEY=sk-...
+
+# Web Search (Required for market context)
+BRAVE_API_KEY=BSA...
+
+# SEC EDGAR (Required for financial data)
+SEC_EDGAR_USER_AGENT=FinancialResearchAgent/1.0 (your-email@example.com)
+ENABLE_EDGAR_INTEGRATION=true
+
+# Authentication (Required for user tracking)
 SUPABASE_URL=https://xxx.supabase.co
 SUPABASE_ANON_KEY=eyJ...
-SEC_EDGAR_USER_AGENT=Steve Parton stephen.parton@sjpconsulting.com
+AUTH_REDIRECT_URL=https://financialanalysis-production.up.railway.app
+```
+
+**OPTIONAL variables (for advanced features):**
+
+```
+# Serper Search API (optional fallback to Brave)
+SERPER_API_KEY=...
+
+# EDGAR MCP Server (optional, for advanced EDGAR features)
+EDGAR_MCP_COMMAND=/path/to/.venv/bin/python
+EDGAR_MCP_ARGS=-m sec_edgar_mcp.server
 ```
 
 **Get values from your local `.env` file!**
+
+**Important Notes:**
+- `BRAVE_API_KEY` is critical - without it, web searches will fail
+- `SEC_EDGAR_USER_AGENT` must follow format: "AppName/Version (email@example.com)"
+- `AUTH_REDIRECT_URL` should match your Railway URL (update to custom domain later)
+- Railway auto-redeploys when you add/change environment variables
 
 ### 3.5 Add Persistent Volume
 
@@ -379,6 +408,49 @@ If you still see async warnings:
 - Check logs for permission errors
 - Increase volume size if needed
 
+### Web Searches Returning "No relevant data"
+
+**Symptom**: Search results show "No relevant data was retrieved" for all queries
+
+**Cause**: Missing `BRAVE_API_KEY` environment variable
+
+**Fix:**
+1. In Railway → **Variables** tab
+2. Add `BRAVE_API_KEY=BSA...` (get from https://search.brave.com/search/api)
+3. Railway will auto-redeploy
+4. Test search again - should work immediately
+
+**Note**: Brave Search API is 10x cheaper than OpenAI's WebSearchTool and is the primary search provider.
+
+### SEC EDGAR Extraction Failing
+
+**Symptom**: SEC filing data not appearing in reports
+
+**Cause**: Missing or misconfigured EDGAR environment variables
+
+**Fix:**
+1. In Railway → **Variables** tab, verify these are set:
+   - `SEC_EDGAR_USER_AGENT=AppName/Version (your-email@example.com)`
+   - `ENABLE_EDGAR_INTEGRATION=true`
+2. Ensure User Agent follows SEC format (name + email)
+3. Railway will auto-redeploy
+4. Test analysis again
+
+**Note**: SEC requires proper User-Agent identification per their API policy.
+
+### Module Import Errors (e.g., "No module named 'groq'")
+
+**Symptom**: Application crashes with `ModuleNotFoundError`
+
+**Cause**: Code trying to import optional dependency that's not installed
+
+**Fix:**
+- **If module is no longer used**: Remove all imports and references from codebase
+- **If module is needed**: Add to `pyproject.toml` dependencies
+- Commit changes and push to GitHub (Railway auto-redeploys)
+
+**Example**: We completely removed Groq support since it's no longer used, eliminating the import error.
+
 ---
 
 ## POST-DEPLOYMENT
@@ -419,6 +491,19 @@ Railway will auto-redeploy with authentication enabled.
 
 In Supabase Dashboard → **Authentication** → **URL Configuration**:
 
+**Site URL** (use Railway URL initially, update to custom domain later):
+```
+https://financialanalysis-production.up.railway.app
+```
+
+**Redirect URLs** (add both):
+```
+https://financialanalysis-production.up.railway.app/auth/callback
+https://financialanalysis-production.up.railway.app
+```
+
+**After adding custom domain (cblanalytics.com), UPDATE to:**
+
 **Site URL**:
 ```
 https://cblanalytics.com
@@ -430,7 +515,9 @@ https://cblanalytics.com/auth/callback
 https://cblanalytics.com
 ```
 
-Remove any old Modal URLs if present.
+**Important**: Remove any old Modal URLs if still present.
+
+**Note**: Update `AUTH_REDIRECT_URL` in Railway Variables to match your current URL.
 
 #### Step 5: Test Authentication
 
