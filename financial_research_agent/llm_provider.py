@@ -15,7 +15,13 @@ from typing import Optional, Literal
 from datetime import datetime, timedelta
 
 import openai
-from groq import Groq
+
+# Make groq import optional (only needed if using Groq provider)
+try:
+    from groq import Groq
+    GROQ_AVAILABLE = True
+except ImportError:
+    GROQ_AVAILABLE = False
 
 
 # Provider types
@@ -222,6 +228,10 @@ def configure_llm_provider(
     Raises:
         ValueError: If no API key available for any provider
     """
+    # If Groq is requested but not available, force fallback to OpenAI
+    if provider == "groq" and not GROQ_AVAILABLE:
+        provider = "openai"
+
     manager = get_session_manager()
 
     # Try primary provider
