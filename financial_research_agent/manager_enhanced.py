@@ -182,8 +182,6 @@ class EnhancedFinancialResearchManager:
             config_mode = "budget"
         elif os.getenv("LLM_PROVIDER") == "together":
             config_mode = "together"
-        elif os.getenv("LLM_PROVIDER") == "groq":
-            config_mode = "groq"
 
         # Initialize cost tracker
         self.cost_tracker = CostTracker(

@@ -12,8 +12,7 @@ try:
 except ImportError:
     pass  # python-dotenv not installed, will use environment variables only
 
-# OpenAI configuration (only provider currently supported)
-# Note: Groq support was removed due to SDK compatibility issues
+# OpenAI configuration
 
 
 class AgentConfig:

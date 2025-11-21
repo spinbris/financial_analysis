@@ -757,60 +757,25 @@ class WebApp:
             def progress_callback(prog: float, desc: str):
                 progress(prog, desc=desc)
 
-            # Configure LLM provider before initializing manager
-            progress(0.0, desc="Configuring LLM provider...")
+            # Configure OpenAI API key from session if available
+            progress(0.0, desc="Configuring OpenAI...")
             import os
             from financial_research_agent.llm_provider import get_session_manager
 
-            # Get API keys from session if available
+            # Get OpenAI API key from session if available
             manager = get_session_manager()
-            groq_key = None
             openai_key = None
 
             if self.session_id:
-                groq_key = manager.get_api_key(self.session_id, "groq")
                 openai_key = manager.get_api_key(self.session_id, "openai")
 
-            # Configure environment based on provider
-            if self.llm_provider == "groq":
-                # Use Groq with OpenAI-compatible endpoint
-                if groq_key:
-                    os.environ["OPENAI_API_KEY"] = groq_key
-                elif "GROQ_API_KEY" in os.environ:
-                    os.environ["OPENAI_API_KEY"] = os.environ["GROQ_API_KEY"]
+            # Set OpenAI API key if provided
+            if openai_key:
+                os.environ["OPENAI_API_KEY"] = openai_key
 
-                # Set Groq base URL for OpenAI client
-                os.environ["OPENAI_BASE_URL"] = "https://api.groq.com/openai/v1"
-
-                # Override model selections to use Groq models
-                from financial_research_agent.llm_provider import get_groq_model
-                os.environ["PLANNER_MODEL"] = get_groq_model("planner")
-                os.environ["SEARCH_MODEL"] = get_groq_model("search")
-                os.environ["WRITER_MODEL"] = get_groq_model("writer")
-                os.environ["VERIFIER_MODEL"] = get_groq_model("verifier")
-                os.environ["EDGAR_MODEL"] = get_groq_model("edgar")
-                os.environ["FINANCIALS_MODEL"] = get_groq_model("financials")
-                os.environ["RISK_MODEL"] = get_groq_model("risk")
-                os.environ["METRICS_MODEL"] = get_groq_model("metrics")
-
-                # Disable reasoning effort for Groq (doesn't support ModelSettings)
-                # Set to empty string so get_model_settings() returns None
-                os.environ["PLANNER_REASONING_EFFORT"] = ""
-                os.environ["SEARCH_REASONING_EFFORT"] = ""
-                os.environ["WRITER_REASONING_EFFORT"] = ""
-                os.environ["VERIFIER_REASONING_EFFORT"] = ""
-                os.environ["EDGAR_REASONING_EFFORT"] = ""
-                os.environ["FINANCIALS_REASONING_EFFORT"] = ""
-                os.environ["RISK_REASONING_EFFORT"] = ""
-                os.environ["METRICS_REASONING_EFFORT"] = ""
-            else:
-                # Use OpenAI
-                if openai_key:
-                    os.environ["OPENAI_API_KEY"] = openai_key
-
-                # Clear Groq base URL if previously set
-                if "OPENAI_BASE_URL" in os.environ:
-                    del os.environ["OPENAI_BASE_URL"]
+            # Clear any leftover OPENAI_BASE_URL from previous configurations
+            if "OPENAI_BASE_URL" in os.environ:
+                del os.environ["OPENAI_BASE_URL"]
 
             # Extract ticker from query before running analysis
             # This enables sector-specific features like banking ratios
@@ -1134,8 +1099,8 @@ The following companies are not yet in the knowledge base:
         except Exception:
             return "*Unable to load knowledge base status*"
 
-    def save_session_keys(self, provider: str, groq_key: str, openai_key: str) -> str:
-        """Save API keys for the current session."""
+    def save_session_keys(self, openai_key: str) -> str:
+        """Save OpenAI API key for the current session."""
         from financial_research_agent.llm_provider import get_session_manager
 
         # Create session if needed
@@ -1145,28 +1110,12 @@ The following companies are not yet in the knowledge base:
 
         manager = get_session_manager()
 
-        # Store provided keys
-        if groq_key:
-            manager.set_api_key(self.session_id, "groq", groq_key)
-
+        # Store OpenAI key
         if openai_key:
             manager.set_api_key(self.session_id, "openai", openai_key)
-
-        # Update provider preference
-        self.llm_provider = provider
-
-        # Build status message
-        status_parts = []
-        if groq_key:
-            status_parts.append("✅ Groq key saved")
-        if openai_key:
-            status_parts.append("✅ OpenAI key saved")
-
-        if status_parts:
-            status = " | ".join(status_parts)
-            return f"**{status}** (Active provider: {provider.upper()})\n\n*Keys stored in-memory only. Remember to delete from provider after use!*"
+            return "✅ **OpenAI key saved**\n\n*Keys stored in-memory only. Remember to delete from provider after use!*"
         else:
-            return f"*Using environment/default keys (Active provider: {provider.upper()})*"
+            return "*Using environment/default OpenAI key*"
 
     def clear_session_keys(self) -> str:
         """Clear all session keys."""
@@ -1176,7 +1125,7 @@ The following companies are not yet in the knowledge base:
             manager = get_session_manager()
             manager.clear_session(self.session_id)
             self.session_id = None
-            return "✅ **Session keys cleared**\n\n*Remember to delete keys from your provider (Groq/OpenAI)!*"
+            return "✅ **Session keys cleared**\n\n*Remember to delete keys from your OpenAI account!*"
         else:
             return "*No session keys to clear*"
 
