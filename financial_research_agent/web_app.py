@@ -175,7 +175,7 @@ class WebApp:
             'financial_analysis': '05_financial_analysis.md',
             'risk_analysis': '06_risk_analysis.md',
             'verification': '08_verification.md',
-            'cost_report': '08_cost_report.md',
+            'cost_report': '09_cost_report.md',
             'search_results': '02_search_results.md',
             'edgar_filings': '02_edgar_filings.md'
         }
@@ -1025,7 +1025,7 @@ If this error persists, please check:
             'verification': '08_verification.md',
             'search_results': '02_search_results.md',
             'edgar_filings': '02_edgar_filings.md',
-            'cost_report': '08_cost_report.md',  # Cost breakdown
+            'cost_report': '09_cost_report.md',  # Cost breakdown
         }
 
         for key, filename in report_files.items():

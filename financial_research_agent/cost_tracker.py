@@ -222,7 +222,7 @@ class CostTracker:
             json.dump(asdict(self.report), f, indent=2)
 
         # Save markdown summary
-        md_path = output_path / "08_cost_report.md"
+        md_path = output_path / "09_cost_report.md"
         md_content = self._generate_markdown_report()
         with open(md_path, 'w') as f:
             f.write(md_content)
