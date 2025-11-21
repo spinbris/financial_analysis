@@ -11,18 +11,19 @@ from financial_research_agent.config import AgentConfig
 def get_planner_prompt():
     """Generate planner prompt with current date context."""
     now = datetime.now()
-    # TEMPORARY FIX: Override year if system clock is set to 2025
-    # Remove this once system clock is corrected
-    if now.year == 2025:
-        now = now.replace(year=2024)
     current_year = now.year
     current_month = now.month
 
     # Determine current quarter and most recent completed quarter
     current_quarter = (current_month - 1) // 3 + 1
-    # Most recent likely completed quarter (conservative estimate)
-    recent_quarter = current_quarter - 1 if current_quarter > 1 else 4
-    recent_quarter_year = current_year if current_quarter > 1 else current_year - 1
+    # Most recent likely FILED quarter (accounting for 45-day filing delay)
+    # If we're in Nov (Q4), Q3 10-Q might just be filing now, so go back to Q2
+    if current_month == 11:  # November - Q3 10-Q filing deadline
+        recent_quarter = 2  # Use Q2 as safest bet
+        recent_quarter_year = current_year
+    else:
+        recent_quarter = current_quarter - 1 if current_quarter > 1 else 4
+        recent_quarter_year = current_year if current_quarter > 1 else current_year - 1
 
     return f"""You are a financial research planner. Given a request for financial analysis,
 produce a set of web searches to gather the context needed. Aim for recent
