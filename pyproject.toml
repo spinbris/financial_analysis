@@ -20,3 +20,9 @@ dependencies = [
     "great-tables>=0.8.0",
     "supabase>=2.0.0",
 ]
+
+[tool.setuptools]
+packages = ["financial_research_agent"]
+
+[tool.setuptools.package-data]
+financial_research_agent = ["**/*.md", "**/*.txt"]
