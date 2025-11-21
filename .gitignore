@@ -20,12 +20,20 @@ env/
 .env
 .env.local
 .env.budget
+.env.modal
 
 # Allow .env.example to be committed
 !.env.example
 
-# Output directories
+# Modal-specific files (not needed for Railway)
+modal_app.py
+modal_app_with_auth.py
+modal_app_minimal.py
+modal_fastapi_bridge.py
+
+# Output directories (will regenerate on Railway)
 financial_research_agent/output/
+financial_research_agent/chroma_db/
 output/
 *.log
 

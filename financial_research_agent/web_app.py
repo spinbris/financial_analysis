@@ -48,7 +48,7 @@ KB_QUERY_EXAMPLES = [
     "Compare Microsoft and Google's cloud strategies",
     "What are Tesla's key financial risks?",
     "How has Amazon's profitability changed over time?",
-    "Compare AI spend among AAPL, MSFT, GOOGL, META, NVDA",
+    "Compare capex spend among AAPL, MSFT, GOOGL, META, NVDA",
     "Compare profit margins for Apple, Microsoft, Nvidia, Meta, Tesla",
 ]
 
@@ -2289,10 +2289,12 @@ The following companies are not yet in the knowledge base:
                 self.analysis_map = {a['label']: a['value'] for a in analyses}
                 return gr.update(choices=choices, value=choices[0] if choices else None)
 
-            app.load(
-                fn=load_dropdown_choices,
-                outputs=[existing_dropdown]
-            )
+            # DISABLED FOR MODAL: Scanning analysis folders on volume mount causes 18+ minute startup delay
+            # The dropdown will be empty on startup but interface loads instantly
+            # app.load(
+            #     fn=load_dropdown_choices,
+            #     outputs=[existing_dropdown]
+            # )
 
             # TODO: Pre-populate stock ticker from Home page query
             # Feature temporarily disabled - requires different approach for tab selection events

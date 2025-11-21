@@ -1,0 +1,25 @@
+# Railway Migration - Git Commands
+
+# Review what changed
+git status
+git diff
+
+# Stage all changes
+git add .
+
+# Commit with descriptive message
+git commit -m "Prepare for Railway deployment
+
+- Remove Modal files (modal_app*.py, modal_fastapi_bridge.py, .env.modal)
+- Update pyproject.toml: Python >=3.11, add missing dependencies
+- Update .gitignore: exclude Modal files and chroma_db
+- Update .env.example: add Supabase config (optional auth)
+- Enhance Railway_deployment_guide.md with recommendations
+- web_app.py: Keep app.load() disabled for fast startup
+- Ready for Railway deployment at cblanalytics.com"
+
+# Push to GitHub
+git push origin main
+
+# After pushing, proceed to Railway deployment
+# See: Railway_deployment_guide.md

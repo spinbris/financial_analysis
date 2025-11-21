@@ -1,15 +1,22 @@
 [project]
 name = "financial_analysis"
 version = "0.1.0"
-description = "Add your description here"
+description = "AI-powered financial research system with SEC EDGAR integration"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
+    "openai>=1.0.0",
     "openai-agents>=0.4.2",
     "rich>=13.0.0",
     "python-dotenv>=1.0.0",
-    "datetime>=5.5",
     "gradio>=4.0.0",
     "yfinance>=0.2.0",
     "plotly>=5.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+    "pandas>=2.0.0",
+    "edgartools>=2.29.0",
+    "chromadb>=0.4.24",
+    "great-tables>=0.8.0",
+    "supabase>=2.0.0",
 ]
