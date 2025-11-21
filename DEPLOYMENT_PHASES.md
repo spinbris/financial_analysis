@@ -29,7 +29,8 @@ SEC_EDGAR_USER_AGENT=Steve Parton stephen.parton@sjpconsulting.com
 - [ ] Volume storage working correctly
 
 ### Cost:
-**$12-17/month** (Railway + Storage only)
+**Trial**: $5 free credit (test for a few days)
+**Hobby Plan**: $12-17/month ($5 plan + $7-12 usage + storage)
 
 ### Access:
 - No authentication required
@@ -196,20 +197,38 @@ git push origin main
 
 ## 💰 Cost Breakdown
 
+### Railway Pricing Tiers:
+1. **Trial**: $5 free credit (no subscription)
+   - Test deployment for a few days
+   - See actual usage before committing
+
+2. **Hobby Plan**: $5/month subscription
+   - Includes $5 usage credit each month
+   - Pay-as-you-go for usage beyond credit
+   - **Most likely choice for your app**
+
 ### Phase 1 (Testing):
-- Railway Compute: $10-15/month
-- Storage (10GB): $2/month
+**Option A: Trial** (Free for testing)
+- Use $5 free trial credit
+- ~2-5 days of testing depending on usage
+- No subscription required
+
+**Option B: Hobby Plan**
+- Railway Hobby: $5/month (includes $5 credit)
+- Additional usage: ~$7-12/month (compute + storage)
 - **Total: $12-17/month**
 
 ### Phase 2 (Production):
-- Railway Compute: $10-15/month
-- Storage (10GB): $2/month
-- Supabase Pro: $25/month (for advanced analytics)
-- **Total: $37-42/month**
+- Railway Hobby: $5/month (includes $5 credit)
+- Additional usage: ~$7-12/month
+- Supabase: Free tier (start here) or Pro $25/month
+- **Total: $12-17/month (free Supabase) → $37-42/month (Pro Supabase)**
 
-**Note**: Supabase free tier might be sufficient initially:
-- Free: 50,000 MAU, 500MB DB, 1GB storage
-- Upgrade when you need more capacity or analytics
+**Recommended Strategy**:
+1. Start with Trial ($5 free) to test
+2. Upgrade to Hobby ($5/month) when ready
+3. Stay on Supabase free tier until you need analytics
+4. Total realistic cost: **$12-17/month** for production
 
 ---
 

@@ -136,10 +136,12 @@ git push origin main
 - **Status**: Not working reliably
 
 ### New Setup (Railway - Stable)
-- Railway Base: ~$10-15/month
+- Railway Hobby Plan: $5/month (includes $5 usage credit)
+- Additional compute usage: ~$5-10/month (pay as you go)
 - Storage (10GB): ~$2/month
 - Supabase (for user tracking): Free tier initially, then ~$25/month
 - **Total: $12-17/month (testing) → $37-42/month (production with auth)**
+- **Note**: Can start on Trial ($5 free credit) to test, then upgrade to Hobby ($5/month)
 - **Benefits**:
   - ✅ Persistent storage
   - ✅ No async issues

@@ -143,10 +143,22 @@ git push origin main
 
 ## STEP 3: Railway Deployment Configuration
 
-### 3.1 Create Railway Account
+### 3.1 Create Railway Account & Choose Plan
+
 1. Go to https://railway.app
 2. Sign up with GitHub
-3. **Apply Black Friday deal if available!**
+3. **Choose Plan**:
+   - **Trial**: $5 free credit (no subscription) - Perfect for initial testing!
+   - **Hobby**: $5/month (includes $5 credit) - Upgrade when ready for production
+
+**Recommendation**: Start with Trial to test deployment, then upgrade to Hobby ($5/month) once you're satisfied.
+
+**Pricing Details**:
+- Trial: $5 free credit, no subscription, ~2-5 days of testing
+- Hobby: $5/month subscription + $5 usage credit = $10 total value
+- Usage beyond credit: Pay-as-you-go (~$0.000231/GB-sec for compute)
+- Storage: ~$0.25/GB/month
+- **Expected monthly cost with Hobby**: $12-17/month total
 
 ### 3.2 Create New Project
 1. Click "New Project"
@@ -472,19 +484,52 @@ Upgrade to Pro ($25/month) when needed for:
 
 ## COST ESTIMATE
 
-**Railway (with Black Friday deal):**
-- Base: ~$5/month (discounted)
-- Compute: ~$5-10/month (usage-based)
-- Storage: ~$1-2/month (1-2 GB volumes)
-- **Total: $10-20/month** (vs $20-40 on broken Modal)
+### Railway Pricing Strategy
+
+**Phase 1: Testing (Trial)**
+- Trial: $5 free credit (no subscription)
+- Duration: ~2-5 days of testing
+- **Cost: FREE** ✅
+
+**Phase 2: Production (Hobby Plan)**
+- Hobby subscription: $5/month (includes $5 usage credit)
+- Compute usage: ~$5-10/month (beyond included credit)
+- Storage (10GB): ~$2/month
+- **Subtotal: $12-17/month**
+
+**Phase 3: With User Tracking (Add Supabase)**
+- Railway: $12-17/month
+- Supabase Free: $0/month (50K MAU, 500MB DB)
+- **Total: $12-17/month** ✅
+
+**OR with Supabase Pro** (if you need advanced analytics):
+- Railway: $12-17/month
+- Supabase Pro: $25/month
+- **Total: $37-42/month**
+
+### Cost Comparison
+| Service | Modal (Old) | Railway (New) |
+|---------|-------------|---------------|
+| Monthly Cost | $20-40/month | $12-17/month ✅ |
+| Reliability | Broken ❌ | Stable ✅ |
+| Startup Time | 18+ minutes ❌ | <30 seconds ✅ |
+| Storage | Ephemeral ❌ | Persistent ✅ |
+| User Tracking | No ❌ | Yes (with Supabase) ✅ |
+
+**Recommended Approach**:
+1. Start with Trial ($5 free) to test
+2. Upgrade to Hobby ($5/month) for production
+3. Use Supabase free tier for user tracking
+4. **Expected cost: $12-17/month** 🎯
 
 **Benefits:**
 - ✅ Full app works perfectly
 - ✅ Persistent storage
-- ✅ Custom domain
-- ✅ Automatic SSL
+- ✅ Custom domain + SSL
 - ✅ No async issues
 - ✅ Professional hosting
+- ✅ User access tracking
+- ✅ Cheaper than Modal!
 
 ---
 
