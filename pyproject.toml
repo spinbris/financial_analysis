@@ -24,5 +24,10 @@ dependencies = [
 [tool.setuptools]
 packages = ["financial_research_agent"]
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["financial_research_agent*"]
+exclude = ["tests*", "scripts*", "docs*", "*.egg-info*"]
+
 [tool.setuptools.package-data]
 financial_research_agent = ["**/*.md", "**/*.txt"]
