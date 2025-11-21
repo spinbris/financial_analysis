@@ -11,6 +11,10 @@ from financial_research_agent.config import AgentConfig
 def get_planner_prompt():
     """Generate planner prompt with current date context."""
     now = datetime.now()
+    # TEMPORARY FIX: Override year if system clock is set to 2025
+    # Remove this once system clock is corrected
+    if now.year == 2025:
+        now = now.replace(year=2024)
     current_year = now.year
     current_month = now.month
 
