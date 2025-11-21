@@ -66,7 +66,8 @@ class WebApp:
 
     def get_existing_analyses(self):
         """Get list of existing analysis directories with company names."""
-        output_dir = Path("financial_research_agent/output")
+        from financial_research_agent.config import AgentConfig
+        output_dir = Path(AgentConfig.OUTPUT_DIR)
         if not output_dir.exists():
             return []
 
@@ -294,7 +295,8 @@ class WebApp:
 
         try:
             # Initialize ChromaDB
-            rag = FinancialRAGManager(persist_directory="./chroma_db")
+            from financial_research_agent.config import AgentConfig
+            rag = FinancialRAGManager(persist_directory=AgentConfig.CHROMA_DB_DIR)
 
             # Extract tickers from query if not explicitly filtered
             if not ticker_filter:

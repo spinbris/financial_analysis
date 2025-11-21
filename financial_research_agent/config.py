@@ -56,6 +56,7 @@ class AgentConfig:
 
     # Output configuration
     OUTPUT_DIR = os.getenv("OUTPUT_DIR", "financial_research_agent/output")
+    CHROMA_DB_DIR = os.getenv("CHROMA_DB_DIR", "./chroma_db")
 
     # Feature flags
     ENABLE_EDGAR_INTEGRATION = os.getenv("ENABLE_EDGAR_INTEGRATION", "false").lower() == "true"
