@@ -21,9 +21,6 @@ dependencies = [
     "supabase>=2.0.0",
 ]
 
-[tool.setuptools]
-packages = ["financial_research_agent"]
-
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["financial_research_agent*"]
