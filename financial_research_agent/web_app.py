@@ -152,15 +152,18 @@ class WebApp:
         import plotly.graph_objects as go
 
         if not selected_label or selected_label not in self.analysis_map:
-            return ("", "", "", "", "", "", "", "", "", None, None, None, gr.update(visible=False))
+            return ("", "", "", "", "", "", "", "", "", "", None, None, None, gr.update(visible=False))
 
         analysis_path = self.analysis_map[selected_label]
         dir_path = Path(analysis_path)
         if not dir_path.exists():
             return (
                 "❌ Analysis directory not found",
-                "", "", "", "", "", "", "", "", None, None, None, gr.update(visible=False)
+                "", "", "", "", "", "", "", "", "", None, None, None, gr.update(visible=False)
             )
+
+        # Set current session directory for cost summary loading
+        self.current_session_dir = dir_path
 
         # Load report files
         reports = {}
@@ -172,6 +175,7 @@ class WebApp:
             'financial_analysis': '05_financial_analysis.md',
             'risk_analysis': '06_risk_analysis.md',
             'verification': '08_verification.md',
+            'cost_report': '08_cost_report.md',
             'search_results': '02_search_results.md',
             'edgar_filings': '02_edgar_filings.md'
         }
@@ -225,11 +229,15 @@ class WebApp:
         # Format timestamp with human-readable date
         age_info = format_analysis_age(dir_path.name)
 
+        # Load cost summary
+        cost_summary = self._load_cost_summary()
+        cost_line = f"\n{cost_summary}\n" if cost_summary else ""
+
         status_msg = f"""✅ Loaded analysis successfully!
 
 **Analysis Date:** {age_info['formatted']} {age_info['status_emoji']}
 **Session ID:** {dir_path.name}
-"""
+{cost_line}"""
 
         # Check if banking ratios exist (banking sector analysis)
         has_banking_ratios = reports.get('banking_ratios') is not None
@@ -243,6 +251,7 @@ class WebApp:
             reports.get('financial_analysis', ''),
             reports.get('risk_analysis', ''),
             reports.get('verification', ''),
+            reports.get('cost_report', '*Cost report not available for this analysis*'),
             reports.get('search_results', '*Search results not available for this analysis*'),
             reports.get('edgar_filings', '*EDGAR filings data not available for this analysis*'),
             margin_chart_fig,
@@ -728,7 +737,7 @@ class WebApp:
         if not query or query.strip() == "":
             yield (
                 "❌ Please enter a query or select a template",
-                "", "", "", "", "", "", "", "", "", None, None, None, gr.update(visible=False)
+                "", "", "", "", "", "", "", "", "", "", None, None, None, gr.update(visible=False)
             )
             return
 
@@ -746,6 +755,7 @@ class WebApp:
                 'financial_analysis': '*⏳ Waiting for financial analysis...*',
                 'risk_analysis': '*⏳ Waiting for risk analysis...*',
                 'verification': '*⏳ Waiting for verification...*',
+                'cost_report': '*⏳ Waiting for cost report...*',
                 'search_results': '*⏳ Waiting for search results...*',
                 'edgar_filings': '*⏳ Waiting for EDGAR filings...*'
             }
@@ -842,6 +852,7 @@ class WebApp:
                             reports.get('financial_analysis', ''),
                             reports.get('risk_analysis', ''),
                             reports.get('verification', ''),
+                            reports.get('cost_report', '*⏳ Cost report being generated...*'),
                             reports.get('search_results', ''),
                             reports.get('edgar_filings', ''),
                             None,  # Charts not available yet
@@ -918,12 +929,16 @@ class WebApp:
 
             from financial_research_agent.rag.utils import format_analysis_age
             age_info = format_analysis_age(self.current_session_dir.name)
+            # Load cost summary
+            cost_summary = self._load_cost_summary()
+            cost_line = f"\n{cost_summary}\n" if cost_summary else ""
+
             status_msg = f"""✅ Analysis completed successfully!
 
 **Analysis Date:** {age_info['formatted']} {age_info['status_emoji']}
 **Session ID:** {self.current_session_dir.name}
 **Query:** {query}
-
+{cost_line}
 📊 All reports are now available in the tabs below. The analysis has been automatically indexed to the knowledge base for instant Q&A!
 """
 
@@ -939,6 +954,7 @@ class WebApp:
                 reports.get('financial_analysis', ''),
                 reports.get('risk_analysis', ''),
                 reports.get('verification', ''),
+                reports.get('cost_report', '*Cost report not available for this analysis*'),
                 reports.get('search_results', '*Search results not available for this analysis*'),
                 reports.get('edgar_filings', '*EDGAR filings data not available for this analysis*'),
                 margin_chart_fig,
@@ -962,7 +978,34 @@ If this error persists, please check:
 3. SEC EDGAR is accessible
 """
             print(f"\n{'='*60}\nERROR IN ANALYSIS:\n{'='*60}\n{error_details}\n{'='*60}\n")
-            yield (error_msg, "", "", "", "", "", "", "", "", "", None, None, None, gr.update(visible=False))
+            yield (error_msg, "", "", "", "", "", "", "", "", "", "", None, None, None, gr.update(visible=False))
+
+    def _load_cost_summary(self) -> str:
+        """Load cost summary from cost_report.json for status display."""
+        if not self.current_session_dir or not self.current_session_dir.exists():
+            return ""
+
+        cost_json_path = self.current_session_dir / "cost_report.json"
+        if not cost_json_path.exists():
+            return ""
+
+        try:
+            import json
+            with open(cost_json_path, 'r') as f:
+                cost_data = json.load(f)
+
+            total_cost = cost_data.get('total_cost', 0)
+            duration = cost_data.get('duration_seconds', 0)
+
+            # Format duration
+            if duration >= 60:
+                duration_str = f"{duration/60:.1f} min"
+            else:
+                duration_str = f"{duration:.0f}s"
+
+            return f"**💰 Cost:** ${total_cost:.4f} | **⏱️ Duration:** {duration_str}"
+        except Exception:
+            return ""
 
     def _load_reports(self) -> dict[str, str]:
         """Load generated markdown reports from session directory."""
@@ -982,6 +1025,7 @@ If this error persists, please check:
             'verification': '08_verification.md',
             'search_results': '02_search_results.md',
             'edgar_filings': '02_edgar_filings.md',
+            'cost_report': '08_cost_report.md',  # Cost breakdown
         }
 
         for key, filename in report_files.items():
@@ -2036,8 +2080,24 @@ The following companies are not yet in the knowledge base:
                                 """
                             )
 
-                        # ==================== TAB 8: Search Results (Dev) ====================
-                        with gr.Tab("🔍 Search Results", id=7):
+                        # ==================== TAB 8: Cost Report ====================
+                        with gr.Tab("💰 Cost Report", id=8):
+                            gr.Markdown(
+                                """
+                                ## Analysis Cost Breakdown
+                                *Detailed token usage and costs per agent*
+
+                                This report shows the exact cost breakdown for generating this analysis,
+                                including per-agent token usage and API costs.
+                                """
+                            )
+
+                            cost_report_output = gr.Markdown(
+                                elem_classes=["report-content"]
+                            )
+
+                        # ==================== TAB 9: Search Results (Dev) ====================
+                        with gr.Tab("🔍 Search Results", id=9):
                             gr.Markdown(
                                 """
                                 ## Multi-Source Search Results
@@ -2052,8 +2112,8 @@ The following companies are not yet in the knowledge base:
                                 elem_classes=["report-content"]
                             )
 
-                        # ==================== TAB 9: Stock Price ====================
-                        with gr.Tab("📈 Stock Price", id=9):
+                        # ==================== TAB 10: Stock Price ====================
+                        with gr.Tab("📈 Stock Price", id=10):
                             gr.Markdown(
                                 """
                                 ## Live Stock Price Charts
@@ -2098,8 +2158,8 @@ The following companies are not yet in the knowledge base:
                                 elem_classes=["report-content"]
                             )
 
-                        # ==================== TAB 10: EDGAR Filings (Dev) ====================
-                        with gr.Tab("📄 EDGAR Filings", id=10):
+                        # ==================== TAB 11: EDGAR Filings (Dev) ====================
+                        with gr.Tab("📄 EDGAR Filings", id=11):
                             gr.Markdown(
                                 """
                                 ## SEC EDGAR Filings Data
@@ -2142,6 +2202,7 @@ The following companies are not yet in the knowledge base:
                     financial_analysis_output,
                     risk_analysis_output,
                     verification_output,
+                    cost_report_output,  # NEW: Cost report
                     search_results_output,
                     edgar_filings_output,
                     margin_chart,
@@ -2165,6 +2226,7 @@ The following companies are not yet in the knowledge base:
                     financial_analysis_output,
                     risk_analysis_output,
                     verification_output,
+                    cost_report_output,  # NEW: Cost report
                     search_results_output,
                     edgar_filings_output,
                     margin_chart,
