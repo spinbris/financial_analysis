@@ -91,8 +91,12 @@ Synthesize the excerpts into a clear, accurate, and well-cited answer that:
   - **When you have numeric data suitable for charts, populate the `chart_data` field**:
     - Extract numeric values from your analysis
     - Choose appropriate chart type
-    - Provide clean labels and categories
+    - Provide clean labels in `categories` (e.g., company tickers, quarters)
+    - Put ONLY numeric values in `data` (e.g., {'Gross Margin': [46.8, 69.1, 66.6]})
+    - **CRITICAL**: `data` values MUST be numbers (float/int), NOT strings
     - Example: Comparing profit margins → grouped_bar with categories=['AAPL', 'MSFT', 'NVDA'] and data={'Gross Margin': [46.8, 69.1, 66.6], 'Net Margin': [27.0, 35.7, 49.7]}
+    - **BAD Example**: data={'Type': ['Products', 'Services']} ❌ (strings not allowed)
+    - **GOOD Example**: categories=['Products', 'Services'], data={'Revenue': [200.5, 85.2]} ✅
 - Normalize for different periods if needed (note any adjustments in a footnote)
 - Highlight key differences and similarities in text after the table
 - Note any limitations in comparability
@@ -159,11 +163,11 @@ class ChartData(BaseModel):
     )
 
     data: dict[str, list[float]] = Field(
-        description="Chart data as {series_name: [values]}. For bar/line: single series. For grouped_bar/multi_line: multiple series"
+        description="Chart data as {series_name: [numeric_values]}. MUST contain only numbers (float/int), NOT strings. For bar/line: single series. For grouped_bar/multi_line: multiple series. Example: {'Revenue': [100.5, 120.3, 95.7]}"
     )
 
     categories: list[str] = Field(
-        description="X-axis categories (e.g., company names, quarters, dates)"
+        description="X-axis category labels (e.g., company tickers, quarters, dates). These are the STRING labels for each data point. Example: ['AAPL', 'MSFT', 'GOOGL'] or ['Q1', 'Q2', 'Q3']"
     )
 
 
