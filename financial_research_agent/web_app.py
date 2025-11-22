@@ -213,12 +213,16 @@ class WebApp:
             file_path = dir_path / filename
             if file_path.exists():
                 reports[key] = file_path.read_text()
+                if key == 'cost_report':
+                    print(f"✅ [LOAD] Cost report found at {file_path}")
             else:
                 # Don't mark banking_ratios as "not found" - it's conditional
                 if key == 'banking_ratios':
                     reports[key] = None
                 else:
                     reports[key] = f"*{filename} not found*"
+                    if key == 'cost_report':
+                        print(f"❌ [LOAD] Cost report NOT found at {file_path}")
 
         # Load chart data (if available) and convert to Plotly Figure objects
         margin_chart_fig = None
