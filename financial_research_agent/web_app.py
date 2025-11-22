@@ -2360,12 +2360,13 @@ The following companies are not yet in the knowledge base:
                 self.analysis_map = {a['label']: a['value'] for a in analyses}
                 return gr.update(choices=choices, value=choices[0] if choices else None)
 
-            # DISABLED FOR MODAL: Scanning analysis folders on volume mount causes 18+ minute startup delay
-            # The dropdown will be empty on startup but interface loads instantly
-            # app.load(
-            #     fn=load_dropdown_choices,
-            #     outputs=[existing_dropdown]
-            # )
+            # Auto-populate dropdown on app load
+            # Re-enabled after fixing persistent storage (was disabled for Modal/Railway performance)
+            # Now that /data/output works correctly, startup scan is fast
+            app.load(
+                fn=load_dropdown_choices,
+                outputs=[existing_dropdown]
+            )
 
             # TODO: Pre-populate stock ticker from Home page query
             # Feature temporarily disabled - requires different approach for tab selection events
