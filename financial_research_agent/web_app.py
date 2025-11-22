@@ -168,8 +168,20 @@ class WebApp:
         import json
         import plotly.graph_objects as go
 
-        if not selected_label or selected_label not in self.analysis_map:
+        # Auto-refresh analysis_map if selection is not in map
+        if not selected_label:
             return ("", "", "", "", "", "", "", "", "", "", None, None, None, gr.update(visible=False))
+
+        if selected_label not in self.analysis_map:
+            print(f"⚠️ '{selected_label}' not in analysis_map, refreshing...")
+            analyses = self.get_existing_analyses()
+            self.analysis_map = {a['label']: a['value'] for a in analyses}
+
+        if selected_label not in self.analysis_map:
+            return (
+                f"❌ Analysis '{selected_label}' not found in {AgentConfig.OUTPUT_DIR}",
+                "", "", "", "", "", "", "", "", "", None, None, None, gr.update(visible=False)
+            )
 
         analysis_path = self.analysis_map[selected_label]
         dir_path = Path(analysis_path)
