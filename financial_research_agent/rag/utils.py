@@ -165,23 +165,19 @@ def extract_tickers_from_query(query: str) -> list[str]:
     # Strategy: Combine company_map matches + explicit ticker matches
 
     # Common English words that will NEVER be tickers (fast filter before edgartools check)
-    # IMPORTANT: Only include words that are guaranteed to NOT be ticker symbols
-    # Don't include financial terms that might be tickers (e.g., KEY is KeyCorp, FLOW is Global X Funds)
+    # IMPORTANT: Keep this list MINIMAL - only words guaranteed to never be ticker symbols
+    # The smart filter below handles context-based filtering (e.g., "main" in "main revenue")
     common_words = {
-        # Basic English words (pronouns, articles, prepositions, conjunctions)
-        "THE", "AND", "FOR", "ARE", "BUT", "NOT", "YOU", "ALL", "CAN",
-        "HAD", "HER", "WAS", "ONE", "OUR", "OUT", "DAY", "GET", "HAS",
-        "HIM", "HIS", "HOW", "ITS", "MAY", "NEW", "NOW", "OLD", "SEE",
-        "TWO", "WAY", "WHO", "BOY", "DID", "LET", "PUT", "SAY", "SHE",
-        "TOO", "USE", "VIA", "WHAT", "WHEN", "WITH", "FROM", "THIS",
-        "THAT", "HAVE", "THEY", "BEEN", "WERE", "SAID", "EACH", "THAN",
-        "FIND", "MANY", "THEN", "THEM", "MAKE", "LIKE", "TIME", "VERY",
-        "JUST", "KNOW", "TAKE", "YEAR", "SOME", "OVER", "SUCH", "ALSO",
-        "BACK", "ONLY", "COME", "WORK", "SPEND", "MAJOR", "AMONG", "MAIN",
-        # Generic business words (not specific financial terms that might be tickers)
-        "COMPANIES", "COMPANY", "ABOUT", "INTO", "DOES", "WELL", "EVEN",
-        "MADE", "GIVEN", "THEIR", "THESE", "THOSE", "WOULD", "COULD",
-        "SHOULD", "BEING", "DOING", "GOING", "FIRST", "LAST"
+        # Very basic English words (articles, pronouns, basic verbs/prepositions)
+        "THE", "AND", "FOR", "ARE", "BUT", "NOT", "YOU", "ALL",
+        "WAS", "ONE", "OUR", "OUT", "HAS", "HER", "HIM", "HIS",
+        "HOW", "ITS", "NEW", "NOW", "OLD", "SEE", "TOO", "USE",
+        "VIA", "WHO", "DID", "LET", "PUT", "SAY", "SHE", "TWO",
+        "WAY", "WHAT", "WHEN", "WITH", "FROM", "THIS", "THAT",
+        "HAVE", "THEY", "BEEN", "WERE", "SAID", "EACH", "THAN",
+        "THEM", "MAKE", "LIKE", "TIME", "VERY", "JUST", "KNOW",
+        "SOME", "SUCH", "ABOUT", "INTO", "EVEN", "THEIR", "THESE",
+        "THOSE", "WOULD", "COULD", "SHOULD", "BEING", "DOING"
     }
 
     # Known major tickers (Magnificent 7 / Big Tech + major indices)
@@ -247,6 +243,21 @@ def extract_tickers_from_query(query: str) -> list[str]:
 
     # Combine name matches + explicit ticker matches (deduplicate)
     all_tickers = list(set(name_tickers + validated_explicit_tickers))
+
+    # Smart filter: If we found explicit company mentions (Apple, Microsoft, etc.),
+    # filter out weak ticker matches that are likely common words
+    if name_tickers:
+        # We have strong company matches from company_map
+        # Filter out any ticker that appears as lowercase in the original query
+        # (likely a common word, not a ticker reference)
+        filtered_tickers = []
+        for ticker in all_tickers:
+            # If this ticker appears lowercase in the query, it's probably not a ticker reference
+            if ticker.lower() in query.lower() and ticker.upper() not in query:
+                # Skip it - probably a common word like "main", "work", "back", etc.
+                continue
+            filtered_tickers.append(ticker)
+        all_tickers = filtered_tickers if filtered_tickers else all_tickers
 
     # Normalize to ADR tickers for international companies
     from financial_research_agent.utils.sector_detection import normalize_ticker
