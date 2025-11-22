@@ -2148,7 +2148,7 @@ The following companies are not yet in the knowledge base:
                             )
 
                         # ==================== TAB 8: Cost Report ====================
-                        with gr.Tab("💰 Cost Report", id=8):
+                        with gr.Tab("💰 Cost Report", id=7):
                             gr.Markdown(
                                 """
                                 ## Analysis Cost Breakdown
