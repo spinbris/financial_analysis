@@ -717,7 +717,8 @@ async def extract_risk_factors(ticker: str, use_cache: bool = True) -> dict[str,
     if use_cache:
         try:
             from financial_research_agent.rag.chroma_manager import FinancialRAGManager
-            rag_manager = FinancialRAGManager()
+            from financial_research_agent.config import AgentConfig
+            rag_manager = FinancialRAGManager(persist_directory=AgentConfig.CHROMA_DB_DIR)
         except Exception as e:
             print(f"Warning: Could not initialize RAG manager for caching: {e}")
 

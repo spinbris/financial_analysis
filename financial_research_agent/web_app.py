@@ -879,13 +879,14 @@ class WebApp:
             try:
                 from financial_research_agent.rag.chroma_manager import FinancialRAGManager
                 from financial_research_agent.rag.utils import extract_tickers_from_query
+                from financial_research_agent.config import AgentConfig
 
                 # Extract ticker from query
                 detected_tickers = extract_tickers_from_query(query)
                 ticker = detected_tickers[0] if detected_tickers else "UNKNOWN"
 
                 # Index the analysis
-                rag = FinancialRAGManager(persist_directory="./chroma_db")
+                rag = FinancialRAGManager(persist_directory=AgentConfig.CHROMA_DB_DIR)
                 rag.index_analysis_from_directory(self.current_session_dir, ticker=ticker)
             except Exception as index_error:
                 # Don't fail the whole analysis if indexing fails
@@ -1124,9 +1125,10 @@ The following companies are not yet in the knowledge base:
         """
         from financial_research_agent.rag.chroma_manager import FinancialRAGManager
         from financial_research_agent.rag.utils import format_company_status
+        from financial_research_agent.config import AgentConfig
 
         try:
-            rag = FinancialRAGManager(persist_directory="./chroma_db")
+            rag = FinancialRAGManager(persist_directory=AgentConfig.CHROMA_DB_DIR)
             companies = rag.get_companies_with_status()
 
             if not companies:
@@ -1741,9 +1743,10 @@ The following companies are not yet in the knowledge base:
             def load_kb_status():
                 from financial_research_agent.rag.intelligence import get_kb_summary_banner
                 from financial_research_agent.rag.chroma_manager import FinancialRAGManager
+                from financial_research_agent.config import AgentConfig
 
                 try:
-                    rag = FinancialRAGManager(persist_directory="./chroma_db")
+                    rag = FinancialRAGManager(persist_directory=AgentConfig.CHROMA_DB_DIR)
                     return get_kb_summary_banner(rag)
                 except Exception as e:
                     return f"### 💾 Knowledge Base Status\n\n*Unable to load: {str(e)}*"
@@ -1758,6 +1761,7 @@ The following companies are not yet in the knowledge base:
                 """Toggle function that uses state instead of component properties"""
                 from financial_research_agent.rag.intelligence import get_kb_detailed_status
                 from financial_research_agent.rag.chroma_manager import FinancialRAGManager
+                from financial_research_agent.config import AgentConfig
 
                 # If currently visible, hide it
                 if state["visible"]:
@@ -1766,7 +1770,7 @@ The following companies are not yet in the knowledge base:
                 # If currently hidden, show it (load content if not loaded yet)
                 try:
                     if not state["content"]:
-                        rag = FinancialRAGManager(persist_directory="./chroma_db")
+                        rag = FinancialRAGManager(persist_directory=AgentConfig.CHROMA_DB_DIR)
                         content = get_kb_detailed_status(rag)
                     else:
                         content = state["content"]  # Use cached content
