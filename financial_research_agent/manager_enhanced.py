@@ -269,6 +269,23 @@ class EnhancedFinancialResearchManager:
                     self._report_progress(0.20, "Searching web sources...")
                     search_results = await self._perform_searches(search_plan)
 
+                # Generate visualization charts (works with or without EDGAR MCP)
+                # Charts use edgartools directly, not MCP
+                if self.ticker:
+                    self._report_progress(0.60, "Generating interactive charts...")
+                    try:
+                        from financial_research_agent.visualization import generate_charts_for_analysis
+                        charts_count = generate_charts_for_analysis(
+                            self.session_dir,
+                            ticker=self.ticker,
+                            metrics_results=metrics_results  # May be None if EDGAR disabled
+                        )
+                        if charts_count > 0:
+                            logger.info(f"Generated {charts_count} visualization charts")
+                    except Exception as e:
+                        logger.warning(f"Failed to generate charts (non-critical): {e}")
+                        # Don't fail the analysis if charts fail
+
                 self._report_progress(0.70, "Synthesizing comprehensive research report...")
                 report = await self._write_report(query, search_results, edgar_results, metrics_results)
 

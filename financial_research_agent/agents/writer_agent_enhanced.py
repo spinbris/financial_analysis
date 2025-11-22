@@ -79,6 +79,13 @@ Produce a **comprehensive research report** (3-5 pages, approximately 1500-2500 
 - Synthesize the detailed financial analysis into narrative
 - Highlight most significant financial trends
 - Include key metrics in context
+- **Interactive Visualizations** (if available): Embed charts to support financial narrative
+  - Revenue & Profitability chart: `![Revenue & Profitability Trends](chart_revenue_profitability.png)`
+  - Margin Trends chart: `![Profitability Margins](chart_margins.png)`
+  - Balance Sheet chart: `![Balance Sheet Composition](chart_balance_sheet.png)`
+  - Place charts strategically AFTER introducing the relevant section (e.g., revenue chart after discussing revenue trends)
+  - Add 1-2 sentence caption explaining what the chart shows
+  - If chart files don't exist in the session directory, skip them (non-critical)
 - **Year-over-Year Comparison Tables** (REQUIRED): Include the three YoY comparison tables provided in your input
   - The input contains three pre-formatted YoY comparison tables:
     1. **Key Financial Metrics (YoY Comparison)** - Revenue, Gross Profit, Operating Income, Net Income with YoY $ and %

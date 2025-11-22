@@ -333,7 +333,7 @@ class FinancialChartGenerator:
 
     def generate_all_charts(self, output_dir: Path, metrics_results=None) -> Dict[str, Path]:
         """
-        Generate all charts and save as JSON files for Gradio.
+        Generate all charts and save as JSON files for Gradio AND PNG for markdown embedding.
 
         Args:
             output_dir: Directory to save chart JSON files
@@ -348,11 +348,21 @@ class FinancialChartGenerator:
         try:
             fig = self.create_revenue_profitability_chart()
             if fig:
+                # Save as JSON for Gradio
                 chart_path = output_dir / "chart_revenue_profitability.json"
                 with open(chart_path, 'w') as f:
                     json.dump(fig.to_dict(), f)
+
+                # Save as PNG for markdown embedding
+                try:
+                    png_path = output_dir / "chart_revenue_profitability.png"
+                    fig.write_image(str(png_path), width=1000, height=600)
+                    logger.info(f"Generated revenue profitability chart: {chart_path} + PNG")
+                except Exception as e:
+                    logger.warning(f"Failed to export PNG (kaleido not installed?): {e}")
+                    logger.info(f"Generated revenue profitability chart: {chart_path} (JSON only)")
+
                 charts['revenue_profitability'] = chart_path
-                logger.info(f"Generated revenue profitability chart: {chart_path}")
         except Exception as e:
             logger.warning(f"Failed to generate revenue chart: {e}")
 
@@ -361,11 +371,21 @@ class FinancialChartGenerator:
             try:
                 fig = self.create_margin_trends_chart(metrics_results)
                 if fig:
+                    # Save as JSON for Gradio
                     chart_path = output_dir / "chart_margins.json"
                     with open(chart_path, 'w') as f:
                         json.dump(fig.to_dict(), f)
+
+                    # Save as PNG for markdown embedding
+                    try:
+                        png_path = output_dir / "chart_margins.png"
+                        fig.write_image(str(png_path), width=1000, height=600)
+                        logger.info(f"Generated margin chart: {chart_path} + PNG")
+                    except Exception as e:
+                        logger.warning(f"Failed to export PNG: {e}")
+                        logger.info(f"Generated margin chart: {chart_path} (JSON only)")
+
                     charts['margins'] = chart_path
-                    logger.info(f"Generated margin chart: {chart_path}")
             except Exception as e:
                 logger.warning(f"Failed to generate margin chart: {e}")
 
@@ -373,11 +393,21 @@ class FinancialChartGenerator:
         try:
             fig = self.create_balance_sheet_composition_chart()
             if fig:
+                # Save as JSON for Gradio
                 chart_path = output_dir / "chart_balance_sheet.json"
                 with open(chart_path, 'w') as f:
                     json.dump(fig.to_dict(), f)
+
+                # Save as PNG for markdown embedding
+                try:
+                    png_path = output_dir / "chart_balance_sheet.png"
+                    fig.write_image(str(png_path), width=1000, height=600)
+                    logger.info(f"Generated balance sheet chart: {chart_path} + PNG")
+                except Exception as e:
+                    logger.warning(f"Failed to export PNG: {e}")
+                    logger.info(f"Generated balance sheet chart: {chart_path} (JSON only)")
+
                 charts['balance_sheet'] = chart_path
-                logger.info(f"Generated balance sheet chart: {chart_path}")
         except Exception as e:
             logger.warning(f"Failed to generate balance sheet chart: {e}")
 
