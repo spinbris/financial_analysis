@@ -177,7 +177,7 @@ def extract_tickers_from_query(query: str) -> list[str]:
         "THAT", "HAVE", "THEY", "BEEN", "WERE", "SAID", "EACH", "THAN",
         "FIND", "MANY", "THEN", "THEM", "MAKE", "LIKE", "TIME", "VERY",
         "JUST", "KNOW", "TAKE", "YEAR", "SOME", "OVER", "SUCH", "ALSO",
-        "BACK", "ONLY", "COME", "WORK", "SPEND", "MAJOR", "AMONG",
+        "BACK", "ONLY", "COME", "WORK", "SPEND", "MAJOR", "AMONG", "MAIN",
         # Generic business words (not specific financial terms that might be tickers)
         "COMPANIES", "COMPANY", "ABOUT", "INTO", "DOES", "WELL", "EVEN",
         "MADE", "GIVEN", "THEIR", "THESE", "THOSE", "WOULD", "COULD",
