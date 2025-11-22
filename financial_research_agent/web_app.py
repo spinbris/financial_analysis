@@ -2160,6 +2160,7 @@ The following companies are not yet in the knowledge base:
                             )
 
                             cost_report_output = gr.Markdown(
+                                value="*Cost report will appear here after loading an analysis*",
                                 elem_classes=["report-content"]
                             )
 
