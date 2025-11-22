@@ -146,6 +146,13 @@ class WebApp:
         unique_analyses.sort(key=lambda x: x['ticker'])
         return unique_analyses
 
+    def refresh_dropdown_choices(self):
+        """Refresh the dropdown with latest analyses."""
+        analyses = self.get_existing_analyses()
+        choices = [a['label'] for a in analyses]
+        self.analysis_map = {a['label']: a['value'] for a in analyses}
+        return gr.update(choices=choices)
+
     def load_existing_analysis(self, selected_label: str):
         """Load an existing analysis from disk."""
         from financial_research_agent.rag.utils import format_analysis_age
@@ -1811,12 +1818,14 @@ The following companies are not yet in the knowledge base:
                         """)
                         gr.Markdown("*Load a previously generated financial analysis report from your history*")
 
-                        existing_dropdown = gr.Dropdown(
-                            label="Select Previous Analysis",
-                            choices=[],
-                            interactive=True,
-                            scale=3
-                        )
+                        with gr.Row():
+                            existing_dropdown = gr.Dropdown(
+                                label="Select Previous Analysis",
+                                choices=[],
+                                interactive=True,
+                                scale=3
+                            )
+                            refresh_btn = gr.Button("🔄 Refresh List", size="sm", scale=1)
 
                         load_btn = gr.Button("📂 Load Analysis", variant="primary", size="lg")
 
@@ -2228,6 +2237,12 @@ The following companies are not yet in the knowledge base:
                 ]
             )
 
+
+            # Refresh button for existing analyses dropdown
+            refresh_btn.click(
+                fn=self.refresh_dropdown_choices,
+                outputs=[existing_dropdown]
+            )
 
             # Load button for existing analyses
             load_btn.click(
