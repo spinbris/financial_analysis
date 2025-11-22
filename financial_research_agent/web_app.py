@@ -301,6 +301,13 @@ class WebApp:
             # Extract tickers from query if not explicitly filtered
             if not ticker_filter:
                 detected_tickers = extract_tickers_from_query(query)
+
+                # Filter out tickers that aren't in KB (reduces false positives like "MAIN")
+                # Only keep tickers we actually have data for
+                if detected_tickers:
+                    kb_tickers = [t for t in detected_tickers if rag.check_company_status(t)["in_kb"]]
+                    # If we filtered everything out, keep original list for routing logic to handle
+                    detected_tickers = kb_tickers if kb_tickers else detected_tickers
             else:
                 detected_tickers = [ticker_filter.strip().upper()]
 
@@ -887,10 +894,13 @@ class WebApp:
 
                 # Index the analysis
                 rag = FinancialRAGManager(persist_directory=AgentConfig.CHROMA_DB_DIR)
-                rag.index_analysis_from_directory(self.current_session_dir, ticker=ticker)
+                result = rag.index_analysis_from_directory(self.current_session_dir, ticker=ticker)
+                print(f"✅ Indexed {result.get('total_chunks', 0)} chunks for {ticker} to ChromaDB at {AgentConfig.CHROMA_DB_DIR}")
             except Exception as index_error:
                 # Don't fail the whole analysis if indexing fails
-                print(f"Warning: Failed to auto-index analysis: {index_error}")
+                print(f"❌ Warning: Failed to auto-index analysis: {index_error}")
+                import traceback
+                traceback.print_exc()
 
             # Auto-generate charts (optional - won't break if unavailable)
             progress(0.98, desc="Generating interactive charts...")
@@ -942,7 +952,7 @@ class WebApp:
 **Session ID:** {self.current_session_dir.name}
 **Query:** {query}
 {cost_line}
-📊 All reports are now available in the tabs below. The analysis has been automatically indexed to the knowledge base for instant Q&A!
+📊 All reports are now available in the Reports tab. The analysis has been automatically indexed to the knowledge base for instant Q&A!
 """
 
             # Check if banking ratios exist (banking sector analysis)
