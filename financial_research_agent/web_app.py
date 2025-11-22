@@ -275,6 +275,15 @@ class WebApp:
         # Check if banking ratios exist (banking sector analysis)
         has_banking_ratios = reports.get('banking_ratios') is not None
 
+        # Debug: Check cost_report content
+        cost_report_content = reports.get('cost_report', '*Cost report not available for this analysis*')
+        if 'cost_report' in reports:
+            print(f"🔍 [DEBUG] cost_report key exists, content length: {len(reports['cost_report'])} chars")
+            print(f"🔍 [DEBUG] First 100 chars: {reports['cost_report'][:100]}")
+        else:
+            print(f"❌ [DEBUG] cost_report key NOT in reports dict!")
+        print(f"🔍 [DEBUG] cost_report_content being returned: {cost_report_content[:100] if cost_report_content else 'None'}")
+
         return (
             status_msg,
             reports.get('comprehensive', ''),
@@ -284,7 +293,7 @@ class WebApp:
             reports.get('financial_analysis', ''),
             reports.get('risk_analysis', ''),
             reports.get('verification', ''),
-            reports.get('cost_report', '*Cost report not available for this analysis*'),
+            cost_report_content,  # Use the variable we just created for debugging
             reports.get('search_results', '*Search results not available for this analysis*'),
             reports.get('edgar_filings', '*EDGAR filings data not available for this analysis*'),
             margin_chart_fig,
