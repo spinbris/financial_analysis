@@ -148,9 +148,18 @@ class WebApp:
 
     def refresh_dropdown_choices(self):
         """Refresh the dropdown with latest analyses."""
+        from financial_research_agent.config import AgentConfig
         analyses = self.get_existing_analyses()
         choices = [a['label'] for a in analyses]
         self.analysis_map = {a['label']: a['value'] for a in analyses}
+
+        # Debug logging
+        output_dir = Path(AgentConfig.OUTPUT_DIR)
+        print(f"🔍 Refresh dropdown: OUTPUT_DIR={output_dir}, exists={output_dir.exists()}")
+        print(f"🔍 Found {len(analyses)} analyses, {len(choices)} choices")
+        if choices:
+            print(f"🔍 Choices: {choices}")
+
         return gr.update(choices=choices)
 
     def load_existing_analysis(self, selected_label: str):
