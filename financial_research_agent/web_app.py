@@ -818,7 +818,11 @@ class WebApp:
 
             # Initialize manager with progress callback
             progress(0.05, desc="Initializing analysis engine...")
-            self.manager = EnhancedFinancialResearchManager(progress_callback=progress_callback)
+            from financial_research_agent.config import AgentConfig
+            self.manager = EnhancedFinancialResearchManager(
+                output_dir=AgentConfig.OUTPUT_DIR,
+                progress_callback=progress_callback
+            )
 
             # Start the analysis in background with ticker parameter
             import asyncio
