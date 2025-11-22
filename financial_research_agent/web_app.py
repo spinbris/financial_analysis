@@ -1065,12 +1065,16 @@ If this error persists, please check:
             file_path = self.current_session_dir / filename
             if file_path.exists():
                 reports[key] = file_path.read_text(encoding='utf-8')
+                if key == 'cost_report':
+                    print(f"✅ Loaded cost report from {file_path}")
             else:
                 # Banking ratios is conditional - don't show "not generated" if it doesn't exist
                 if key == 'banking_ratios':
                     reports[key] = None
                 else:
                     reports[key] = f"*Report not generated: {filename}*"
+                    if key == 'cost_report':
+                        print(f"❌ Cost report NOT found at {file_path}")
 
         return reports
 
