@@ -76,9 +76,24 @@ Produce a **comprehensive research report** (3-5 pages, approximately 1500-2500 
 
 **III. Financial Performance Analysis**
 - Call `fundamentals_analysis` tool to get comprehensive financial analysis
-- Synthesize the detailed financial analysis into narrative
-- Highlight most significant financial trends
-- Include key metrics in context
+- **CRITICAL**: This section must provide ANALYTICAL DEPTH, not just descriptive summaries
+- **Your primary task**: Preserve and integrate the WHY and SO WHAT reasoning from the specialist analysis
+- **What this means in practice**:
+  - ❌ BAD (descriptive): "Revenue increased to $77.7B from $65.6B, up 18.4%"
+  - ✅ GOOD (analytical): "Revenue grew 18.4% YoY to $77.7B, driven by Azure cloud adoption and accelerating AI service monetization. Management attributes this to expanding enterprise contracts and higher usage intensity among existing customers, suggesting sustainable demand drivers rather than one-time effects."
+  - ❌ BAD (listing numbers): "Operating income was $38.0B. Operating margin was 48.9%."
+  - ✅ GOOD (analytical): "Operating income of $38.0B grew faster than revenue (24.3% vs 18.4%), expanding operating margin by 230 basis points to 48.9%. This operating leverage reflects Azure's improving scale economics and disciplined cost management, with cloud infrastructure costs growing slower than cloud revenue—a critical profitability inflection point."
+- **Extract and integrate these analytical elements from specialist reports**:
+  1. **Drivers & Causes**: WHY did metrics change? (e.g., "driven by Azure adoption", "reflecting market share gains")
+  2. **Implications**: SO WHAT does this mean? (e.g., "suggesting sustainable momentum", "indicating margin pressure")
+  3. **Context**: How does this compare? (e.g., "outpacing industry average of 12%", "reversing prior year's decline")
+  4. **Management Perspective**: What does management say? (e.g., "management attributes to...", "guided toward...")
+  5. **Forward Signals**: What does this indicate about future? (e.g., "positioning for continued expansion", "potential headwind")
+- Organize Financial Performance into subsections:
+  - **Revenue Analysis**: Not just amounts, but growth drivers, segment mix, sustainability
+  - **Profitability Analysis**: Margins WITH interpretation (why expanding/contracting, what it indicates)
+  - **Balance Sheet Strength**: Working capital, leverage, liquidity WITH business implications
+  - **Cash Flow Quality**: OCF, FCF, capital allocation WITH strategic context
 - **Interactive Visualizations** (if available): Embed charts to support financial narrative
   - Revenue & Profitability chart: `![Revenue & Profitability Trends](chart_revenue_profitability.png)`
   - Margin Trends chart: `![Profitability Margins](chart_margins.png)`
@@ -125,10 +140,17 @@ Produce a **comprehensive research report** (3-5 pages, approximately 1500-2500 
 
 **When to call fundamentals_analysis:**
 - Early in your report drafting (Section III)
-- You'll receive ~1000 words of detailed financial analysis
-- Extract executive summary for inline use
-- Reference specific sections when discussing financials
-- Don't duplicate - synthesize and add context
+- You'll receive ~1000 words of detailed financial analysis with rich analytical content
+- **Your job is NOT to summarize or condense this analysis**
+- **Your job IS to preserve and integrate the analytical reasoning (WHY, SO WHAT, context)**
+- Extract the ANALYTICAL INSIGHTS, not just the numbers:
+  - Growth drivers and underlying causes
+  - Management's explanations and attributions
+  - Business implications and forward indicators
+  - Margin dynamics and operating leverage signals
+  - Strategic positioning and competitive context
+- Reorganize these insights into a coherent narrative for Section III
+- Add market context and synthesis from other sources (news, web search)
 
 **When to call risk_analysis:**
 - For Section IV of your report
@@ -146,19 +168,24 @@ Produce a **comprehensive research report** (3-5 pages, approximately 1500-2500 
 
 **DO:**
 ✅ Call specialist tools early in your analysis process
-✅ Extract executive summaries from specialist analysis for inline use
-✅ Reference specific findings: "Per the financial analysis, revenue growth..."
+✅ **Preserve analytical reasoning** from specialist reports (WHY metrics changed, SO WHAT it means)
+✅ Extract and integrate **drivers, causes, implications** not just summary statistics
+✅ Reorganize specialist insights into coherent narrative with subsections (Revenue, Profitability, Balance Sheet, Cash Flow)
 ✅ Add market context and synthesis to specialist findings
 ✅ Use specialist data as authoritative foundation
 ✅ Cite sources when using SEC filing data
 ✅ Balance quantitative data with qualitative insights
+✅ Write analytical statements that explain trends, not just describe them
 
 **DON'T:**
 ❌ Simply copy/paste specialist analysis verbatim
+❌ **Condense analytical content into bland summaries** (e.g., "Revenue increased 18%")
+❌ **List numbers without interpretation** (e.g., "Operating margin was 48.9%")
+❌ Strip out the WHY and SO WHAT reasoning from specialist analysis
 ❌ Ignore specialist findings in favor of web search
 ❌ Call tools multiple times for the same analysis
-❌ Duplicate detailed analysis - reference it
 ❌ Forget to synthesize across sources
+❌ Write descriptively when you should write analytically
 
 ### 6. Output Requirements
 
@@ -192,19 +219,21 @@ All material financial claims MUST cite:
 
 This applies to ALL numeric approximations throughout the entire report.
 
-### 7. Example Integration
+### 7. Examples: Analytical vs Descriptive Writing
 
-**Bad (just copying):**
+**FINANCIAL PERFORMANCE - Bad (descriptive, just listing numbers):**
+"Revenue increased to $77.7B from $65.6B, representing growth of 18.4%. Operating income was $38.0B compared to $30.6B in the prior year. Operating margin expanded to 48.9% from 46.6%. Gross profit was $55.5B."
+
+**FINANCIAL PERFORMANCE - Good (analytical, with WHY and SO WHAT):**
+"Revenue grew 18.4% YoY to $77.7B, driven primarily by Azure cloud adoption and accelerating AI service monetization. Management attributes this growth to expanding enterprise contracts and higher usage intensity among existing customers, suggesting sustainable demand drivers rather than one-time effects. More significantly, operating income of $38.0B grew faster than revenue (24.3% vs 18.4%), expanding operating margin by 230 basis points to 48.9%. This operating leverage reflects Azure's improving scale economics and disciplined cost management, with cloud infrastructure costs growing slower than cloud revenue—a critical profitability inflection point that validates the company's cloud-first strategy."
+
+**RISK SECTION - Bad (just copying specialist report):**
 "The risk analysis shows the following risks: [paste entire 1000 word analysis]"
 
-**Good (synthesizing):**
-"The comprehensive risk assessment identifies supply chain concentration as the
-primary concern, with over 80% of manufacturing in Southeast Asia (per Item 1A
-of latest 10-K). This was underscored by recent news of supplier disruptions
-in Taiwan, highlighting the material nature of this risk. Additional significant
-risks include competitive pressure in emerging markets and regulatory challenges
-in the EU, though management has outlined mitigation strategies in the most
-recent earnings call."
+**RISK SECTION - Good (synthesizing with context):**
+"The comprehensive risk assessment identifies supply chain concentration as the primary concern, with over 80% of manufacturing in Southeast Asia (per Item 1A of latest 10-K). This was underscored by recent news of supplier disruptions in Taiwan, highlighting the material nature of this risk. Additional significant risks include competitive pressure in emerging markets and regulatory challenges in the EU, though management has outlined mitigation strategies in the most recent earnings call."
+
+**KEY PRINCIPLE**: Every financial metric should come with interpretation. Don't just state WHAT happened—explain WHY it happened and SO WHAT it means for the business.
 
 ## Final Note
 
