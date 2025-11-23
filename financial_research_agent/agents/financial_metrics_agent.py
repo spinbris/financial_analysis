@@ -50,6 +50,9 @@ def extract_financial_metrics(ticker: str) -> Dict:
     # Extract all financial data
     statements = edgar.get_all_data(ticker)
 
+    # Extract revenue segment breakdowns
+    revenue_segments = edgar.get_revenue_segments(ticker)
+
     # Calculate comprehensive ratios
     ratios = calculator.calculate_all_ratios(ticker)
     growth = calculator.calculate_growth_rates(ticker)
@@ -75,6 +78,7 @@ def extract_financial_metrics(ticker: str) -> Dict:
         'company_name': company_name,
         'sic_code': sic_code,
         'statements': statements,
+        'revenue_segments': revenue_segments,  # Business and geographic segment breakdowns
         'ratios': ratios,
         'growth': growth,
         'verification': verification,

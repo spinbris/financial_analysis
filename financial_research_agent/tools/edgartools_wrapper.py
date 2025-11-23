@@ -488,6 +488,90 @@ class EdgarToolsWrapper:
             'tolerance_pct': tolerance * 100,
         }
 
+    def get_revenue_segments(self, ticker: str, period_index: int = 0) -> Dict[str, Any]:
+        """
+        Extract revenue breakdown by business segment and geography.
+
+        Returns segment data that reconciles to the consolidated revenue line in P&L.
+
+        Args:
+            ticker: Company ticker symbol
+            period_index: Which period (0=most recent, 1=prior)
+
+        Returns:
+            Dict with:
+                - business_segments: List of {name, revenue} for business units
+                - geographic_segments: List of {name, revenue} for geographic areas
+                - total_revenue: Consolidated revenue (should match P&L)
+        """
+        try:
+            company = Company(ticker)
+            income_stmt = company.income_statement()
+
+            # Get the statement with dimensions to access segment data
+            df_with_segments = income_stmt.to_dataframe(include_dimensions=True)
+
+            # Get consolidated revenue for reconciliation
+            df_clean = income_stmt.to_dataframe(include_dimensions=False)
+            metadata_cols = ['label', 'depth', 'is_abstract', 'is_total', 'section', 'confidence']
+            date_cols = [col for col in df_clean.columns if col not in metadata_cols]
+
+            if not date_cols or period_index >= len(date_cols):
+                return {}
+
+            period_col = date_cols[period_index]
+
+            # Get consolidated revenue
+            consolidated_revenue = None
+            revenue_labels = ['Revenues', 'Revenue', 'Total Revenue', 'Total Revenues', 'Net Revenues']
+            for label in revenue_labels:
+                if label in df_clean.index:
+                    consolidated_revenue = df_clean.loc[label, period_col]
+                    break
+
+            # Extract segment data from dimensional DataFrame
+            business_segments = []
+            geographic_segments = []
+
+            # Look for segment dimensions in the index
+            # Common segment patterns: "Revenue [Intelligent Cloud]", "Revenue [United States]", etc.
+            for idx in df_with_segments.index:
+                if 'Revenue' in str(idx) and '[' in str(idx) and ']' in str(idx):
+                    # Extract segment name from brackets
+                    segment_name = str(idx).split('[')[1].split(']')[0]
+                    value = df_with_segments.loc[idx, period_col]
+
+                    # Skip if value is None or not a number
+                    if pd.isna(value) or not isinstance(value, (int, float)):
+                        continue
+
+                    # Categorize as business or geographic segment
+                    # Geographic segments typically include country/region names
+                    geographic_keywords = ['United States', 'Other Countries', 'Americas', 'Europe',
+                                          'Asia', 'China', 'Japan', 'EMEA', 'APAC']
+
+                    is_geographic = any(keyword in segment_name for keyword in geographic_keywords)
+
+                    segment_info = {
+                        'name': segment_name,
+                        'revenue': float(value)
+                    }
+
+                    if is_geographic:
+                        geographic_segments.append(segment_info)
+                    else:
+                        business_segments.append(segment_info)
+
+            return {
+                'business_segments': business_segments,
+                'geographic_segments': geographic_segments,
+                'total_revenue': float(consolidated_revenue) if consolidated_revenue else None
+            }
+
+        except Exception as e:
+            print(f"Error extracting revenue segments for {ticker}: {e}")
+            return {}
+
 
 if __name__ == "__main__":
     # Test with multiple companies
