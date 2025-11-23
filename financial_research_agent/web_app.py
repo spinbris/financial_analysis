@@ -288,7 +288,7 @@ class WebApp:
             margin_chart_fig,
             metrics_chart_fig,
             gr.update(visible=has_banking_ratios),  # Show banking tab only if banking ratios exist
-            str(dir_path / "07_comprehensive_report.md") if (dir_path / "07_comprehensive_report.md").exists() else None  # Download button
+            gr.update(value=str(dir_path / "07_comprehensive_report.md")) if (dir_path / "07_comprehensive_report.md").exists() else gr.update(value=None)  # Download button
         )
 
     def query_knowledge_base(
@@ -776,7 +776,7 @@ class WebApp:
         if not query or query.strip() == "":
             yield (
                 "❌ Please enter a query or select a template",
-                "", "", "", "", "", "", "", "", "", "", None, None, None, gr.update(visible=False)
+                "", "", "", "", "", "", "", "", "", "", None, None, gr.update(visible=False), gr.update(value=None)
             )
             return
 
@@ -985,6 +985,10 @@ class WebApp:
             # Check if banking ratios exist (banking sector analysis)
             has_banking_ratios = reports.get('banking_ratios') is not None
 
+            # Download button value
+            comp_report_path = self.current_session_dir / "07_comprehensive_report.md" if self.current_session_dir else None
+            download_btn_value = gr.update(value=str(comp_report_path)) if comp_report_path and comp_report_path.exists() else gr.update(value=None)
+
             yield (
                 status_msg,
                 reports.get('comprehensive', ''),
@@ -999,7 +1003,8 @@ class WebApp:
                 reports.get('edgar_filings', '*EDGAR filings data not available for this analysis*'),
                 margin_chart_fig,
                 metrics_chart_fig,
-                gr.update(visible=has_banking_ratios)  # Show banking tab only if ratios exist
+                gr.update(visible=has_banking_ratios),  # Show banking tab only if ratios exist
+                download_btn_value  # Download button
             )
 
         except Exception as e:
@@ -1017,7 +1022,7 @@ If this error persists, please check:
 3. SEC EDGAR is accessible
 """
             print(f"\n{'='*60}\nERROR IN ANALYSIS:\n{'='*60}\n{error_details}\n{'='*60}\n")
-            yield (error_msg, "", "", "", "", "", "", "", "", "", None, None, gr.update(visible=False))
+            yield (error_msg, "", "", "", "", "", "", "", "", "", None, None, gr.update(visible=False), gr.update(value=None))
 
     def _load_cost_summary(self) -> str:
         """Load cost summary from cost_report.json for status display."""
@@ -2250,7 +2255,8 @@ The following companies are not yet in the knowledge base:
                     edgar_filings_output,
                     margin_chart,
                     metrics_chart,
-                    banking_ratios_tab  # NEW: Tab visibility
+                    banking_ratios_tab,  # NEW: Tab visibility
+                    download_comp_md  # NEW: Download button
                 ]
             )
 
