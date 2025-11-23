@@ -227,7 +227,6 @@ class WebApp:
         # Load chart data (if available) and convert to Plotly Figure objects
         margin_chart_fig = None
         metrics_chart_fig = None
-        risk_chart_fig = None
 
         # Revenue & Profitability chart (repurposed margin_chart slot)
         revenue_chart_path = dir_path / "chart_revenue_profitability.json"
@@ -248,16 +247,6 @@ class WebApp:
                 metrics_chart_fig = go.Figure(margin_trends_data)
             except Exception as e:
                 print(f"Warning: Failed to load margin trends chart: {e}")
-
-        # Balance Sheet chart (repurposed risk_chart slot)
-        balance_sheet_path = dir_path / "chart_balance_sheet.json"
-        if balance_sheet_path.exists():
-            try:
-                with open(balance_sheet_path, 'r') as f:
-                    balance_sheet_data = json.load(f)
-                risk_chart_fig = go.Figure(balance_sheet_data)
-            except Exception as e:
-                print(f"Warning: Failed to load balance sheet chart: {e}")
 
         # Format timestamp with human-readable date
         age_info = format_analysis_age(dir_path.name)
@@ -298,7 +287,6 @@ class WebApp:
             reports.get('edgar_filings', '*EDGAR filings data not available for this analysis*'),
             margin_chart_fig,
             metrics_chart_fig,
-            risk_chart_fig,
             gr.update(visible=has_banking_ratios),  # Show banking tab only if banking ratios exist
             str(dir_path / "07_comprehensive_report.md") if (dir_path / "07_comprehensive_report.md").exists() else None  # Download button
         )
@@ -952,14 +940,13 @@ class WebApp:
             progress(0.98, desc="Generating interactive charts...")
             margin_chart_fig = None
             metrics_chart_fig = None
-            risk_chart_fig = None
 
             try:
                 # Load the generated charts (charts are now generated during analysis by manager)
                 import json
                 import plotly.graph_objects as go
 
-                # Revenue & Profitability chart (NEW)
+                # Revenue & Profitability chart
                 revenue_chart_path = self.current_session_dir / "chart_revenue_profitability.json"
                 if revenue_chart_path.exists():
                     with open(revenue_chart_path, 'r') as f:
@@ -973,12 +960,6 @@ class WebApp:
                         margin_trends_data = json.load(f)
                     metrics_chart_fig = go.Figure(margin_trends_data)  # Use metrics_chart_fig slot
 
-                # Balance Sheet chart (NEW)
-                balance_sheet_path = self.current_session_dir / "chart_balance_sheet.json"
-                if balance_sheet_path.exists():
-                    with open(balance_sheet_path, 'r') as f:
-                        balance_sheet_data = json.load(f)
-                    risk_chart_fig = go.Figure(balance_sheet_data)  # Use risk_chart_fig slot
             except Exception as chart_error:
                 # Don't fail the whole analysis if chart generation fails
                 # Silently skip charts - they're optional enhancement, not core functionality
@@ -1018,7 +999,6 @@ class WebApp:
                 reports.get('edgar_filings', '*EDGAR filings data not available for this analysis*'),
                 margin_chart_fig,
                 metrics_chart_fig,
-                risk_chart_fig,
                 gr.update(visible=has_banking_ratios)  # Show banking tab only if ratios exist
             )
 
@@ -1037,7 +1017,7 @@ If this error persists, please check:
 3. SEC EDGAR is accessible
 """
             print(f"\n{'='*60}\nERROR IN ANALYSIS:\n{'='*60}\n{error_details}\n{'='*60}\n")
-            yield (error_msg, "", "", "", "", "", "", "", "", "", "", None, None, None, gr.update(visible=False))
+            yield (error_msg, "", "", "", "", "", "", "", "", "", None, None, gr.update(visible=False))
 
     def _load_cost_summary(self) -> str:
         """Load cost summary from cost_report.json for status display."""
@@ -2110,12 +2090,6 @@ The following companies are not yet in the knowledge base:
                             )
 
                             with gr.Row():
-                                risk_chart = gr.Plot(
-                                    label="Balance Sheet Composition",
-                                    visible=True
-                                )
-
-                            with gr.Row():
                                 download_risk_analysis_md = gr.DownloadButton(
                                     label="📥 Download Risk Analysis",
                                     visible=False
@@ -2276,7 +2250,6 @@ The following companies are not yet in the knowledge base:
                     edgar_filings_output,
                     margin_chart,
                     metrics_chart,
-                    risk_chart,
                     banking_ratios_tab  # NEW: Tab visibility
                 ]
             )
@@ -2306,7 +2279,6 @@ The following companies are not yet in the knowledge base:
                     edgar_filings_output,
                     margin_chart,
                     metrics_chart,
-                    risk_chart,
                     banking_ratios_tab,  # NEW: Tab visibility
                     download_comp_md  # NEW: Download button
                 ]
