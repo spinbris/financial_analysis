@@ -13,6 +13,11 @@ RUN apt-get update && apt-get install -y \
 ENV CHROME_BIN=/usr/bin/chromium
 ENV CHROMIUM_PATH=/usr/bin/chromium
 
+# Configure output directory for Railway persistent volume
+# Railway mounts volumes at /data, so we use that for persistent storage
+ENV OUTPUT_DIR=/data/output
+ENV CHROMA_DB_DIR=/data/chroma_db
+
 # Set working directory
 WORKDIR /app
 

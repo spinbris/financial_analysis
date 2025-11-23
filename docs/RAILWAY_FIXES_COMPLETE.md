@@ -63,10 +63,10 @@
 
 ---
 
-### 5. High Analysis Cost ⏳ **PENDING USER ACTION**
+### 5. High Analysis Cost ✅ **FIXED**
 **Problem:** Analysis costing $0.31 (expected $0.20-0.25), writer agent $0.07 (23% of total!)
 
-**Root Cause:** Railway has `WRITER_MODEL=gpt-5.1` environment variable overriding config.py default of `gpt-4.1`
+**Root Cause:** Railway had `WRITER_MODEL=gpt-5.1` environment variable overriding config.py default of `gpt-4.1`
 
 **Evidence:**
 ```json
@@ -77,7 +77,7 @@
 }
 ```
 
-**Solution:** Delete `WRITER_MODEL` from Railway Dashboard → Variables tab
+**Solution:** User deleted `WRITER_MODEL` from Railway Dashboard ✅
 
 **Expected Impact:**
 - Writer cost drops from $0.07 to ~$0.01-0.02
