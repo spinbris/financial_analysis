@@ -504,13 +504,18 @@ class EdgarToolsWrapper:
                 - total_revenue: Consolidated revenue (should match P&L)
         """
         try:
+            logger.info(f"Starting segment extraction for {ticker}")
             company = Company(ticker)
 
             # Get latest 10-K filing for XBRL access
             tenk = company.get_filings(form="10-K").latest(1)
             if not tenk:
                 logger.warning(f"No 10-K filing found for {ticker}")
-                return {}
+                return {
+                    'business_segments': [],
+                    'geographic_segments': [],
+                    'total_revenue': None
+                }
 
             # Access XBRL dimensional data
             xbrl = tenk.xbrl()
@@ -524,7 +529,11 @@ class EdgarToolsWrapper:
 
             if revenue_df.empty:
                 logger.warning(f"No revenue facts found in XBRL for {ticker}")
-                return {}
+                return {
+                    'business_segments': [],
+                    'geographic_segments': [],
+                    'total_revenue': None
+                }
 
             # Get latest period
             latest_period = revenue_df['period_end'].max()
@@ -578,15 +587,29 @@ class EdgarToolsWrapper:
                     value = float(row['numeric_value'])
                     geographic_segments.append({'name': segment_name, 'revenue': value})
 
-            return {
+            result = {
                 'business_segments': business_segments,
                 'geographic_segments': geographic_segments,
                 'total_revenue': total_revenue
             }
 
+            logger.info(f"Successfully extracted segments for {ticker}:")
+            logger.info(f"  Business segments: {len(business_segments)}")
+            logger.info(f"  Geographic segments: {len(geographic_segments)}")
+            logger.info(f"  Total revenue: ${total_revenue:,.0f}" if total_revenue else "  Total revenue: None")
+
+            return result
+
         except Exception as e:
-            print(f"Error extracting revenue segments for {ticker}: {e}")
-            return {}
+            import traceback
+            logger.error(f"Error extracting revenue segments for {ticker}: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return {
+                'business_segments': [],
+                'geographic_segments': [],
+                'total_revenue': None,
+                'error': str(e)
+            }
 
 
 if __name__ == "__main__":
