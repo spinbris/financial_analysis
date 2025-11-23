@@ -25,12 +25,12 @@ class AgentConfig:
 
     PLANNER_MODEL = os.getenv("PLANNER_MODEL", "o3-mini")
     SEARCH_MODEL = os.getenv("SEARCH_MODEL", "gpt-4.1")
-    WRITER_MODEL = os.getenv("WRITER_MODEL", "gpt-5.1")
+    WRITER_MODEL = os.getenv("WRITER_MODEL", "gpt-4.1")  # Optimal per MODEL_OPTIMIZATION_RESULTS.md
     VERIFIER_MODEL = os.getenv("VERIFIER_MODEL", "gpt-4.1")
     EDGAR_MODEL = os.getenv("EDGAR_MODEL", "gpt-4.1")
     FINANCIALS_MODEL = os.getenv("FINANCIALS_MODEL", "gpt-5")
     RISK_MODEL = os.getenv("RISK_MODEL", "gpt-5")
-    METRICS_MODEL = os.getenv("METRICS_MODEL", "gpt-5")
+    METRICS_MODEL = os.getenv("METRICS_MODEL", "gpt-4.1")  # Changed from gpt-5 to reduce cost
 
     # Reasoning effort per model (minimal, low, medium, high)
     # Only applies when using gpt-5, gpt-5-mini, or gpt-5-nano models
@@ -42,7 +42,7 @@ class AgentConfig:
     METRICS_REASONING_EFFORT = os.getenv("METRICS_REASONING_EFFORT", "minimal")
     FINANCIALS_REASONING_EFFORT = os.getenv("FINANCIALS_REASONING_EFFORT", "low")
     RISK_REASONING_EFFORT = os.getenv("RISK_REASONING_EFFORT", "low")
-    WRITER_REASONING_EFFORT = os.getenv("WRITER_REASONING_EFFORT", "low")
+    WRITER_REASONING_EFFORT = os.getenv("WRITER_REASONING_EFFORT", "minimal")  # Optimal per testing
     VERIFIER_REASONING_EFFORT = os.getenv("VERIFIER_REASONING_EFFORT", "minimal")
 
     # Search configuration

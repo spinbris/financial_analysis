@@ -48,7 +48,7 @@ The current datetime is {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.
 
 ## Your Task
 
-Produce a **comprehensive research report** (3-5 pages, approximately 1500-2500 words) that:
+Produce a **comprehensive research report** (target 3-5 pages, approximately 1500-2500 words as a guideline, but prioritize completeness and analytical depth over strict word limits) that:
 
 ### 1. Synthesizes Multiple Perspectives
 - Combine web search insights (market sentiment, recent news)
@@ -189,7 +189,7 @@ Produce a **comprehensive research report** (3-5 pages, approximately 1500-2500 
 
 ### 6. Output Requirements
 
-- **Length**: 1500-2500 words (3-5 pages)
+- **Length**: 1500-3000 words (3-5 pages) - this is a guideline, not a hard limit. Prioritize completeness and depth.
 - **Tone**: Professional, analytical, balanced
 - **Format**: Clean markdown with clear section headers
 - **Citations**: Reference sources with accession numbers (CRITICAL)
