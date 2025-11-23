@@ -170,7 +170,7 @@ class WebApp:
 
         # Auto-refresh analysis_map if selection is not in map
         if not selected_label:
-            return ("", "", "", "", "", "", "", "", "", "", None, None, None, gr.update(visible=False))
+            return ("", "", "", "", "", "", "", "", "", "", None, None, None, gr.update(visible=False), gr.update(visible=False))
 
         if selected_label not in self.analysis_map:
             print(f"⚠️ '{selected_label}' not in analysis_map, refreshing...")
@@ -180,7 +180,7 @@ class WebApp:
         if selected_label not in self.analysis_map:
             return (
                 f"❌ Analysis '{selected_label}' not found in {AgentConfig.OUTPUT_DIR}",
-                "", "", "", "", "", "", "", "", "", None, None, None, gr.update(visible=False)
+                "", "", "", "", "", "", "", "", "", None, None, None, gr.update(visible=False), gr.update(visible=False)
             )
 
         analysis_path = self.analysis_map[selected_label]
@@ -188,7 +188,7 @@ class WebApp:
         if not dir_path.exists():
             return (
                 "❌ Analysis directory not found",
-                "", "", "", "", "", "", "", "", "", None, None, None, gr.update(visible=False)
+                "", "", "", "", "", "", "", "", "", None, None, None, gr.update(visible=False), gr.update(visible=False)
             )
 
         # Set current session directory for cost summary loading
@@ -284,6 +284,9 @@ class WebApp:
             print(f"❌ [DEBUG] cost_report key NOT in reports dict!")
         print(f"🔍 [DEBUG] cost_report_content being returned: {cost_report_content[:100] if cost_report_content else 'None'}")
 
+        # Get path to comprehensive report for download
+        comp_report_path = dir_path / "07_comprehensive_report.md"
+
         return (
             status_msg,
             reports.get('comprehensive', ''),
@@ -299,7 +302,8 @@ class WebApp:
             margin_chart_fig,
             metrics_chart_fig,
             risk_chart_fig,
-            gr.update(visible=has_banking_ratios)  # Show banking tab only if banking ratios exist
+            gr.update(visible=has_banking_ratios),  # Show banking tab only if banking ratios exist
+            gr.update(value=str(comp_report_path) if comp_report_path.exists() else None, visible=comp_report_path.exists())  # Download button
         )
 
     def query_knowledge_base(
@@ -1971,8 +1975,8 @@ The following companies are not yet in the knowledge base:
 
                             with gr.Row():
                                 download_comp_md = gr.DownloadButton(
-                                    label="📥 Download as Markdown",
-                                    visible=False
+                                    label="📥 Download Comprehensive Report (with embedded charts)",
+                                    visible=True
                                 )
                                 # download_comp_md = gr.Button(
                                 #     "📥 Download as PDF",
@@ -2306,7 +2310,8 @@ The following companies are not yet in the knowledge base:
                     margin_chart,
                     metrics_chart,
                     risk_chart,
-                    banking_ratios_tab  # NEW: Tab visibility
+                    banking_ratios_tab,  # NEW: Tab visibility
+                    download_comp_md  # NEW: Download button
                 ]
             )
 
