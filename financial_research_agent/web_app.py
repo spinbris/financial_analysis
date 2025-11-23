@@ -14,6 +14,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from financial_research_agent.manager_enhanced import EnhancedFinancialResearchManager
+from financial_research_agent.config import AgentConfig
 
 
 # Morningstar-inspired theme
