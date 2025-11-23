@@ -27,16 +27,19 @@ COPY . .
 # Install uv for faster Python package management
 RUN pip install uv
 
+# Set environment variable to prevent bytecode generation
+ENV PYTHONDONTWRITEBYTECODE=1
+
 # Clean Python cache to prevent stale bytecode
 RUN find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 RUN find . -type f -name "*.pyc" -delete 2>/dev/null || true
 
-# Install Python dependencies using uv
-RUN uv pip install --system -e .
+# Install Python dependencies using uv (non-editable to avoid caching issues)
+RUN uv pip install --system .
 
 # Clean cache again after install to force fresh bytecode
-ENV PYTHONDONTWRITEBYTECODE=1
 RUN find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+RUN find . -type f -name "*.pyc" -delete 2>/dev/null || true
 
 # Expose Gradio port
 EXPOSE 7860
