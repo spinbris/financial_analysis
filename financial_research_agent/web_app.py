@@ -284,9 +284,6 @@ class WebApp:
             print(f"❌ [DEBUG] cost_report key NOT in reports dict!")
         print(f"🔍 [DEBUG] cost_report_content being returned: {cost_report_content[:100] if cost_report_content else 'None'}")
 
-        # Get path to comprehensive report for download
-        comp_report_path = dir_path / "07_comprehensive_report.md"
-
         return (
             status_msg,
             reports.get('comprehensive', ''),
@@ -303,7 +300,7 @@ class WebApp:
             metrics_chart_fig,
             risk_chart_fig,
             gr.update(visible=has_banking_ratios),  # Show banking tab only if banking ratios exist
-            gr.update(value=str(comp_report_path) if comp_report_path.exists() else None, visible=comp_report_path.exists())  # Download button
+            str(dir_path / "07_comprehensive_report.md") if (dir_path / "07_comprehensive_report.md").exists() else None  # Download button
         )
 
     def query_knowledge_base(

@@ -276,7 +276,7 @@ class FinancialChartGenerator:
                 'Total Equity', 'Stockholders\' Equity', 'Shareholders\' Equity', 'Equity'
             ])
 
-            if not total_assets or not total_equity:
+            if total_assets is None or total_equity is None:
                 logger.warning("Missing required balance sheet items")
                 return None
 
