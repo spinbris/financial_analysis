@@ -288,7 +288,7 @@ class WebApp:
             margin_chart_fig,
             metrics_chart_fig,
             gr.update(visible=has_banking_ratios),  # Show banking tab only if banking ratios exist
-            str(dir_path / "07_comprehensive_report.md") if (dir_path / "07_comprehensive_report.md").exists() else ""  # Download button - empty string to avoid Gradio errors
+            # Download button removed temporarily
         )
 
     def query_knowledge_base(
@@ -1008,7 +1008,7 @@ class WebApp:
                 margin_chart_fig,
                 metrics_chart_fig,
                 gr.update(visible=has_banking_ratios),  # Show banking tab only if ratios exist
-                download_btn_value  # Download button
+                # Download button removed temporarily
             )
 
         except Exception as e:
@@ -1026,8 +1026,8 @@ If this error persists, please check:
 3. SEC EDGAR is accessible
 """
             print(f"\n{'='*60}\nERROR IN ANALYSIS:\n{'='*60}\n{error_details}\n{'='*60}\n")
-            # Use empty string for download button instead of None to avoid Gradio serialization errors
-            yield (error_msg, "", "", "", "", "", "", "", "", "", None, None, gr.update(visible=False), "")
+            # Download button removed temporarily
+            yield (error_msg, "", "", "", "", "", "", "", "", "", None, None, gr.update(visible=False))
 
     def _load_cost_summary(self) -> str:
         """Load cost summary from cost_report.json for status display."""
@@ -1960,15 +1960,12 @@ The following companies are not yet in the knowledge base:
                                 elem_classes=["report-content"]
                             )
 
-                            with gr.Row():
-                                download_comp_md = gr.DownloadButton(
-                                    label="📥 Download Comprehensive Report (with embedded charts)",
-                                    visible=True
-                                )
-                                # download_comp_md = gr.Button(
-                                #     "📥 Download as PDF",
-                                #     size="sm"
-                                # )
+                            # TEMPORARILY DISABLED - Testing if download button causes UI errors
+                            # with gr.Row():
+                            #     download_comp_md = gr.DownloadButton(
+                            #         label="📥 Download Comprehensive Report (with embedded charts)",
+                            #         visible=True
+                            #     )
 
                         # ==================== TAB 3: Financial Statements ====================
                         with gr.Tab("💰 Financial Statements", id=2):
@@ -2261,7 +2258,7 @@ The following companies are not yet in the knowledge base:
                     margin_chart,
                     metrics_chart,
                     banking_ratios_tab,  # NEW: Tab visibility
-                    download_comp_md  # NEW: Download button
+                    # download_comp_md  # TEMPORARILY DISABLED
                 ]
             )
 
@@ -2291,7 +2288,7 @@ The following companies are not yet in the knowledge base:
                     margin_chart,
                     metrics_chart,
                     banking_ratios_tab,  # NEW: Tab visibility
-                    download_comp_md  # NEW: Download button
+                    # download_comp_md  # TEMPORARILY DISABLED
                 ]
             )
 
