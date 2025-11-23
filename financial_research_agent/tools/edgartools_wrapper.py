@@ -36,8 +36,7 @@ class EdgarToolsWrapper:
             Dict mapping standardized keys to values
         """
         # Convert statement to DataFrame for easier extraction
-        # Use include_dimensions=False to get clean P&L without segment data mixed in
-        df = statement_obj.to_dataframe(include_dimensions=False)
+        df = statement_obj.to_dataframe()
 
         # Entity Facts API DataFrame structure:
         # - Index: concept (e.g., 'Assets', 'Revenues')
@@ -490,7 +489,7 @@ class EdgarToolsWrapper:
 
     def get_revenue_segments(self, ticker: str, period_index: int = 0) -> Dict[str, Any]:
         """
-        Extract revenue breakdown by business segment and geography.
+        Extract revenue breakdown by business segment and geography from XBRL.
 
         Returns segment data that reconciles to the consolidated revenue line in P&L.
 
@@ -506,66 +505,83 @@ class EdgarToolsWrapper:
         """
         try:
             company = Company(ticker)
-            income_stmt = company.income_statement()
 
-            # Get the statement with dimensions to access segment data
-            df_with_segments = income_stmt.to_dataframe(include_dimensions=True)
-
-            # Get consolidated revenue for reconciliation
-            df_clean = income_stmt.to_dataframe(include_dimensions=False)
-            metadata_cols = ['label', 'depth', 'is_abstract', 'is_total', 'section', 'confidence']
-            date_cols = [col for col in df_clean.columns if col not in metadata_cols]
-
-            if not date_cols or period_index >= len(date_cols):
+            # Get latest 10-K filing for XBRL access
+            tenk = company.get_filings(form="10-K").latest(1)
+            if not tenk:
+                logger.warning(f"No 10-K filing found for {ticker}")
                 return {}
 
-            period_col = date_cols[period_index]
+            # Access XBRL dimensional data
+            xbrl = tenk.xbrl()
+            facts = xbrl.facts
 
-            # Get consolidated revenue
-            consolidated_revenue = None
-            revenue_labels = ['Revenues', 'Revenue', 'Total Revenue', 'Total Revenues', 'Net Revenues']
-            for label in revenue_labels:
-                if label in df_clean.index:
-                    consolidated_revenue = df_clean.loc[label, period_col]
-                    break
+            # Get all facts with dimensions (this includes segment breakdowns)
+            df = facts.get_facts_with_dimensions()
 
-            # Extract segment data from dimensional DataFrame
+            # Filter for revenue concept
+            revenue_df = df[df['concept'] == 'us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax'].copy()
+
+            if revenue_df.empty:
+                logger.warning(f"No revenue facts found in XBRL for {ticker}")
+                return {}
+
+            # Get latest period
+            latest_period = revenue_df['period_end'].max()
+
+            # Get total consolidated revenue from regular income statement (not XBRL dimensions)
+            income_stmt = company.income_statement()
+            df_stmt = income_stmt.to_dataframe()
+            metadata_cols = ['label', 'depth', 'is_abstract', 'is_total', 'section', 'confidence']
+            date_cols = [col for col in df_stmt.columns if col not in metadata_cols]
+
+            total_revenue = None
+            if date_cols and period_index < len(date_cols):
+                period_col = date_cols[period_index]
+                # Look for revenue in the statement
+                revenue_concept = 'RevenueFromContractWithCustomerExcludingAssessedTax'
+                if revenue_concept in df_stmt.index:
+                    total_revenue = float(df_stmt.loc[revenue_concept, period_col])
+                else:
+                    # Try other common revenue labels
+                    for concept in df_stmt.index:
+                        if 'revenue' in str(concept).lower() and not df_stmt.loc[concept].get('is_abstract', False):
+                            total_revenue = float(df_stmt.loc[concept, period_col])
+                            break
+
+            # Business segments
             business_segments = []
+            business_seg_df = revenue_df[revenue_df['dim_us-gaap_StatementBusinessSegmentsAxis'].notna()].copy()
+            if not business_seg_df.empty:
+                current = business_seg_df[business_seg_df['period_end'] == latest_period]
+                for idx, row in current.iterrows():
+                    segment_name = row['dim_us-gaap_StatementBusinessSegmentsAxis']
+                    # Clean up segment name (remove namespace prefix like "msft:")
+                    if ':' in segment_name:
+                        segment_name = segment_name.split(':')[1]
+                    # Convert CamelCase to readable format
+                    segment_name = segment_name.replace('Member', '')
+                    value = float(row['numeric_value'])
+                    business_segments.append({'name': segment_name, 'revenue': value})
+
+            # Geographic segments
             geographic_segments = []
-
-            # Look for segment dimensions in the index
-            # Common segment patterns: "Revenue [Intelligent Cloud]", "Revenue [United States]", etc.
-            for idx in df_with_segments.index:
-                if 'Revenue' in str(idx) and '[' in str(idx) and ']' in str(idx):
-                    # Extract segment name from brackets
-                    segment_name = str(idx).split('[')[1].split(']')[0]
-                    value = df_with_segments.loc[idx, period_col]
-
-                    # Skip if value is None or not a number
-                    if pd.isna(value) or not isinstance(value, (int, float)):
-                        continue
-
-                    # Categorize as business or geographic segment
-                    # Geographic segments typically include country/region names
-                    geographic_keywords = ['United States', 'Other Countries', 'Americas', 'Europe',
-                                          'Asia', 'China', 'Japan', 'EMEA', 'APAC']
-
-                    is_geographic = any(keyword in segment_name for keyword in geographic_keywords)
-
-                    segment_info = {
-                        'name': segment_name,
-                        'revenue': float(value)
-                    }
-
-                    if is_geographic:
-                        geographic_segments.append(segment_info)
-                    else:
-                        business_segments.append(segment_info)
+            geo_seg_df = revenue_df[revenue_df['dim_srt_StatementGeographicalAxis'].notna()].copy()
+            if not geo_seg_df.empty:
+                current = geo_seg_df[geo_seg_df['period_end'] == latest_period]
+                for idx, row in current.iterrows():
+                    segment_name = row['dim_srt_StatementGeographicalAxis']
+                    # Clean up segment name
+                    if ':' in segment_name:
+                        segment_name = segment_name.split(':')[1]
+                    segment_name = segment_name.replace('Member', '')
+                    value = float(row['numeric_value'])
+                    geographic_segments.append({'name': segment_name, 'revenue': value})
 
             return {
                 'business_segments': business_segments,
                 'geographic_segments': geographic_segments,
-                'total_revenue': float(consolidated_revenue) if consolidated_revenue else None
+                'total_revenue': total_revenue
             }
 
         except Exception as e:
