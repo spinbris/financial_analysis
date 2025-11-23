@@ -6,6 +6,24 @@
 
 ---
 
+## 📋 Quick Summary
+
+### ✅ All Code Fixes Completed
+- Chart generation fixed (uses SEC_EDGAR_USER_AGENT) - commit d37855a
+- Balance sheet chart removed from Risk tab - commit 469dc97
+- Download button fixed - commits 931d861, f1b5dd3
+- Pandas Series bug fixed - commit 6c29d31
+
+### ⏳ Only 1 Action Remaining
+**Delete `WRITER_MODEL` environment variable from Railway Dashboard**
+- This is the ONLY remaining manual step
+- Reduces cost from $0.31 to ~$0.20-0.25 (20-35% savings)
+- Takes 2 minutes to delete + 3 minutes for Railway to redeploy
+
+**All other fixes are already deployed via code commits.**
+
+---
+
 ## Issues Identified
 
 ### 1. Writer Model Using Expensive gpt-5.1 ❌
