@@ -33,7 +33,7 @@ WRITER_MODEL = os.getenv("WRITER_MODEL", "gpt-4.1")  # Optimal per testing
 
 ---
 
-### 2. Charts Not Being Generated ❌
+### 2. Charts Not Being Generated ❌ **FIXED**
 
 **Symptom:**
 - No chart files in output directory
@@ -41,13 +41,17 @@ WRITER_MODEL = os.getenv("WRITER_MODEL", "gpt-4.1")  # Optimal per testing
 - Charts failing silently
 
 **Root Cause:**
-Missing or invalid `EDGAR_IDENTITY` environment variable
+Chart generator was using wrong environment variable name
 
-**Evidence:**
-- chart_generator.py line 430: `identity = os.getenv("EDGAR_IDENTITY", "User user@example.com")`
-- Default value "User user@example.com" is invalid for SEC EDGAR
-- SEC EDGAR requires format: "CompanyName/Version (contact@email.com)"
-- Invalid identity causes SEC API to reject requests silently
+**Issue:**
+- chart_generator.py was looking for `EDGAR_IDENTITY`
+- Railway has `SEC_EDGAR_USER_AGENT` configured ✅
+- Variable name mismatch prevented chart generation
+
+**Fix:**
+- Changed chart_generator.py to use `SEC_EDGAR_USER_AGENT` (commit `d37855a`)
+- Now matches EdgarConfig.USER_AGENT naming convention
+- **No Railway environment variable changes needed** - you already have this configured!
 
 ---
 
@@ -85,23 +89,17 @@ Missing or invalid `EDGAR_IDENTITY` environment variable
 
 ---
 
-### Change 2: Add EDGAR_IDENTITY Variable
+### Change 2: SEC_EDGAR_USER_AGENT ✅ **ALREADY CONFIGURED**
 
-**Action:** Add new environment variable with valid SEC EDGAR identity
+**Status:** You already have `SEC_EDGAR_USER_AGENT` configured in Railway ✅
 
-**Steps:**
-1. Open Railway dashboard
-2. Go to your project → **Variables** tab
-3. Click **+ New Variable**
-4. **Name:** `EDGAR_IDENTITY`
-5. **Value:** `FinancialResearchAgent/1.0 (your-actual-email@domain.com)` ← **Replace with your real email**
-6. Click **Add**
-7. Railway will auto-redeploy
-
-**Why:** SEC EDGAR requires valid User-Agent with contact info per their API guidelines
+**What Changed:**
+- Fixed chart_generator.py to use correct variable name (commit `d37855a`)
+- Was looking for `EDGAR_IDENTITY`, now uses `SEC_EDGAR_USER_AGENT`
+- **No action needed** - Railway will auto-redeploy with the code fix
 
 **Expected Impact:**
-- Charts will generate successfully
+- Charts will generate successfully after Railway redeploys
 - Log will show: `📊 Chart files in [timestamp]: ['chart_revenue_profitability.json', 'chart_revenue_profitability.png', ...]`
 - Comprehensive report download will include embedded chart images
 
@@ -163,7 +161,7 @@ Generated balance sheet chart: [path]/chart_balance_sheet.json + PNG
 |----------|-------|---------|
 | `OPENAI_API_KEY` | `sk-proj-...` | OpenAI API authentication |
 | `BRAVE_API_KEY` | `BSA...` | Web search (optional but recommended) |
-| `EDGAR_IDENTITY` | `FinancialResearchAgent/1.0 (email@domain.com)` | SEC EDGAR API compliance |
+| `SEC_EDGAR_USER_AGENT` | `FinancialResearchAgent/1.0 (email@domain.com)` | SEC EDGAR API compliance (you already have this ✅) |
 
 ### Variables to REMOVE
 
@@ -221,25 +219,25 @@ Total Analysis Cost: ~$0.20-0.25
 - ✅ Balance sheet chart removed from Risk tab (commit `469dc97`)
 
 ### Pending Railway Configuration
-- ⏳ Remove `WRITER_MODEL` environment variable
-- ⏳ Add `EDGAR_IDENTITY` environment variable
+- ⏳ Remove `WRITER_MODEL` environment variable (only remaining action needed)
 
 ---
 
 ## Next Steps
 
-1. **Make Railway environment variable changes** (see sections above)
+1. **Remove WRITER_MODEL from Railway environment variables** (only action needed!)
 2. **Wait for Railway auto-redeploy** (~2-3 minutes)
 3. **Run test MSFT analysis** on Railway
 4. **Verify:**
-   - Cost is ~$0.20-0.25
-   - Charts display in UI
+   - Cost is ~$0.20-0.25 (down from $0.31)
+   - Charts display in UI (should work now with SEC_EDGAR_USER_AGENT fix)
    - Download button works
    - Comprehensive report has embedded chart images
+   - No balance sheet chart in Risk Analysis tab
 5. **Report results** if any issues remain
 
 ---
 
-**Status:** Environment variable fixes identified and documented
-**Action Required:** User must update Railway dashboard environment variables
-**Expected Completion:** ~5 minutes (2 min config + 3 min redeploy)
+**Status:** Chart generation fix deployed (commit `d37855a`), balance sheet chart removed (commit `469dc97`)
+**Action Required:** User must delete WRITER_MODEL from Railway dashboard
+**Expected Completion:** ~5 minutes (2 min to delete variable + 3 min Railway redeploy)
