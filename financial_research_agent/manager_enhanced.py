@@ -282,6 +282,9 @@ class EnhancedFinancialResearchManager:
                         )
                         if charts_count > 0:
                             logger.info(f"Generated {charts_count} visualization charts")
+                            # List chart files created for debugging (Railway file verification)
+                            chart_files = list(self.session_dir.glob("chart_*.json")) + list(self.session_dir.glob("chart_*.png"))
+                            logger.info(f"📊 Chart files in {self.session_dir.name}: {[f.name for f in chart_files]}")
                     except Exception as e:
                         logger.warning(f"Failed to generate charts (non-critical): {e}")
                         # Don't fail the analysis if charts fail
