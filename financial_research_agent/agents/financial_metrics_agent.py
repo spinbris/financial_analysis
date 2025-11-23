@@ -50,8 +50,11 @@ def extract_financial_metrics(ticker: str) -> Dict:
     # Extract all financial data
     statements = edgar.get_all_data(ticker)
 
-    # Extract revenue segment breakdowns
-    revenue_segments = edgar.get_revenue_segments(ticker)
+    # Extract revenue segment breakdowns using the same filing form as financial statements
+    # This ensures segments reconcile to total revenue (e.g., both from 10-Q or both from 10-K)
+    filing_form = statements.get('filing_form')
+    forms_to_try = [filing_form] if filing_form else None  # Use exact form, or default fallback
+    revenue_segments = edgar.get_revenue_segments(ticker, forms=forms_to_try)
 
     # Calculate comprehensive ratios
     ratios = calculator.calculate_all_ratios(ticker)

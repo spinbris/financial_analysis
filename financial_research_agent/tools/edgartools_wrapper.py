@@ -272,6 +272,13 @@ class EdgarToolsWrapper:
         # Get income statement - periods=2 for current + prior
         income_statement = company.income_statement(periods=2)
 
+        # Detect which filing form was used by checking the statement's metadata
+        filing_form = None
+        if hasattr(income_statement, 'filing') and income_statement.filing:
+            filing_form = income_statement.filing.form
+        elif hasattr(income_statement, 'form'):
+            filing_form = income_statement.form
+
         # Extract current period
         current_helper = self._extract_statement_data(income_statement, period_index=0)
         current = {}
@@ -354,6 +361,7 @@ class EdgarToolsWrapper:
             'current_date': current_date,
             'prior_date': prior_date,
             'raw_dataframe': income_statement.to_dataframe() if income_statement else None,
+            'filing_form': filing_form,  # Include which form was used (10-Q, 10-K, etc.)
         }
 
     def get_cashflow_data(self, ticker: str) -> Dict:
@@ -433,14 +441,19 @@ class EdgarToolsWrapper:
         """
         company = Company(ticker)
 
+        # Get income statement data (includes filing_form metadata)
+        income_data = self.get_income_statement_data(ticker)
+        filing_form = income_data.get('filing_form')  # e.g., '10-Q', '10-K', '20-F'
+
         return {
             'balance_sheet': self.get_balance_sheet_data(ticker),
-            'income_statement': self.get_income_statement_data(ticker),
+            'income_statement': income_data,
             'cashflow': self.get_cashflow_data(ticker),
             'ticker': ticker,
             'company_name': company.name,
             'sic_code': getattr(company, 'sic', None),  # Correct attribute is 'sic' not 'sic_code'
             'cik': company.cik,
+            'filing_form': filing_form,  # Expose filing form at top level for segment extraction
         }
 
     def verify_balance_sheet_equation(self, ticker: str, tolerance: float = 0.001) -> Dict:
