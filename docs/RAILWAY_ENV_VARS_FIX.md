@@ -214,9 +214,11 @@ Total Analysis Cost: ~$0.20-0.25
 
 ### Completed
 - ✅ Dockerfile with Chromium for PNG export (commit `866a32b`)
-- ✅ Download button for comprehensive report (commit `a0630bf`)
+- ✅ Download button implementation (commit `a0630bf`)
+- ✅ Download button gr.update fix (commit `31976f3`) - **Fixed "file not available" error**
 - ✅ Balance sheet chart pandas Series bug fix (commit `6c29d31`)
 - ✅ Balance sheet chart removed from Risk tab (commit `469dc97`)
+- ✅ Chart generator uses SEC_EDGAR_USER_AGENT (commit `d37855a`) - **Charts now work**
 
 ### Pending Railway Configuration
 - ⏳ Remove `WRITER_MODEL` environment variable (only remaining action needed)
