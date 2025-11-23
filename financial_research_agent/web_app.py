@@ -777,7 +777,7 @@ class WebApp:
         if not query or query.strip() == "":
             yield (
                 "❌ Please enter a query or select a template",
-                "", "", "", "", "", "", "", "", "", "", None, None, gr.update(visible=False), None
+                "", "", "", "", "", "", "", "", "", "", None, None, gr.update(visible=False)
             )
             return
 
@@ -902,6 +902,7 @@ class WebApp:
                             None,  # Charts not available yet
                             None,
                             gr.update(visible=has_banking),  # Banking tab visibility
+                            None  # Download button placeholder (disabled)
                         )
 
             # Wait for analysis to complete
@@ -1008,7 +1009,7 @@ class WebApp:
                 margin_chart_fig,
                 metrics_chart_fig,
                 gr.update(visible=has_banking_ratios),  # Show banking tab only if ratios exist
-                # Download button removed temporarily
+                None  # Download button placeholder (disabled)
             )
 
         except Exception as e:
@@ -1027,7 +1028,7 @@ If this error persists, please check:
 """
             print(f"\n{'='*60}\nERROR IN ANALYSIS:\n{'='*60}\n{error_details}\n{'='*60}\n")
             # Download button removed temporarily
-            yield (error_msg, "", "", "", "", "", "", "", "", "", None, None, gr.update(visible=False))
+            yield (error_msg, "", "", "", "", "", "", "", "", "", "", None, None, gr.update(visible=False))
 
     def _load_cost_summary(self) -> str:
         """Load cost summary from cost_report.json for status display."""
