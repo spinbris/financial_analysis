@@ -879,6 +879,80 @@ def _calculate_ratio_from_data(balance_sheet: dict, income_statement: dict, cash
     return None
 
 
+def format_revenue_segments(revenue_segments: dict) -> str:
+    """Format revenue segment breakdowns as markdown tables.
+
+    Args:
+        revenue_segments: Dict with business_segments, geographic_segments, total_revenue
+
+    Returns:
+        Formatted markdown string with segment tables
+    """
+    output = "---\n\n"
+    output += "## Revenue Segment Breakdown\n\n"
+
+    business_segments = revenue_segments.get('business_segments', [])
+    geographic_segments = revenue_segments.get('geographic_segments', [])
+    total_revenue = revenue_segments.get('total_revenue')
+
+    if business_segments:
+        output += "### Business Segment Revenue\n\n"
+        output += "| Segment | Revenue | % of Total |\n"
+        output += "|---------|---------|------------|\n"
+
+        for segment in business_segments:
+            name = segment['name']
+            revenue = segment['revenue']
+            pct = (revenue / total_revenue * 100) if total_revenue and total_revenue > 0 else 0
+            output += f"| **{name}** | ${revenue:,.0f} | {pct:.1f}% |\n"
+
+        if total_revenue:
+            output += f"| **Total** | **${total_revenue:,.0f}** | **100.0%** |\n"
+
+        output += "\n"
+
+        # Reconciliation check
+        segment_total = sum(s['revenue'] for s in business_segments)
+        if total_revenue:
+            diff = abs(segment_total - total_revenue)
+            diff_pct = diff / total_revenue * 100 if total_revenue > 0 else 0
+            if diff_pct < 0.1:
+                output += "✓ Business segments reconcile to total revenue\n\n"
+            else:
+                output += f"⚠ Business segments differ from total by ${diff:,.0f} ({diff_pct:.2f}%)\n\n"
+
+    if geographic_segments:
+        output += "### Geographic Revenue\n\n"
+        output += "| Region | Revenue | % of Total |\n"
+        output += "|--------|---------|------------|\n"
+
+        for segment in geographic_segments:
+            name = segment['name']
+            revenue = segment['revenue']
+            pct = (revenue / total_revenue * 100) if total_revenue and total_revenue > 0 else 0
+            output += f"| **{name}** | ${revenue:,.0f} | {pct:.1f}% |\n"
+
+        if total_revenue:
+            output += f"| **Total** | **${total_revenue:,.0f}** | **100.0%** |\n"
+
+        output += "\n"
+
+        # Reconciliation check
+        geo_total = sum(s['revenue'] for s in geographic_segments)
+        if total_revenue:
+            diff = abs(geo_total - total_revenue)
+            diff_pct = diff / total_revenue * 100 if total_revenue > 0 else 0
+            if diff_pct < 0.1:
+                output += "✓ Geographic segments reconcile to total revenue\n\n"
+            else:
+                output += f"⚠ Geographic segments differ from total by ${diff:,.0f} ({diff_pct:.2f}%)\n\n"
+
+    if not business_segments and not geographic_segments:
+        output += "*Segment revenue data not available in this filing.*\n\n"
+
+    return output
+
+
 def format_financial_metrics(
     metrics: Any,
     company_name: str,
@@ -1327,5 +1401,10 @@ def format_financial_metrics(
     output += "- ⚠ = Moderate/Adequate (acceptable but below optimal)\n"
     output += "- ✗ = Concerning/Weak (below industry standards or indicating potential issues)\n"
     output += "- - = Data unavailable or ratio not applicable\n"
+    output += "\n"
+
+    # Add revenue segment breakdowns if available
+    if hasattr(metrics, 'revenue_segments') and metrics.revenue_segments:
+        output += format_revenue_segments(metrics.revenue_segments)
 
     return output

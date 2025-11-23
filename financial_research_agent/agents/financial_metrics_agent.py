@@ -434,6 +434,24 @@ class FinancialMetrics(BaseModel):
     }
     """
 
+    revenue_segments: dict[str, Any] | None = None
+    """Revenue breakdown by business segment and geography from XBRL dimensional data.
+
+    Format: {
+        "business_segments": [
+            {"name": "IntelligentCloud", "revenue": 106265000000.0},
+            {"name": "ProductivityAndBusinessProcesses", "revenue": 120810000000.0}
+        ],
+        "geographic_segments": [
+            {"name": "US", "revenue": 144546000000.0},
+            {"name": "NonUs", "revenue": 137178000000.0}
+        ],
+        "total_revenue": 281724000000.0
+    }
+
+    If segment data is unavailable, this will be None or have empty lists.
+    """
+
 
 # Using strict_json_schema=False because dict[str, Any] is not supported in strict mode
 
