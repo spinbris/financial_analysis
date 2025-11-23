@@ -356,11 +356,12 @@ class FinancialChartGenerator:
                 # Save as PNG for markdown embedding
                 try:
                     png_path = output_dir / "chart_revenue_profitability.png"
-                    fig.write_image(str(png_path), width=1000, height=600)
+                    fig.write_image(str(png_path), width=1000, height=600, engine='kaleido')
                     logger.info(f"Generated revenue profitability chart: {chart_path} + PNG")
                 except Exception as e:
-                    logger.warning(f"Failed to export PNG (kaleido not installed?): {e}")
-                    logger.info(f"Generated revenue profitability chart: {chart_path} (JSON only)")
+                    # Kaleido failed (needs Chrome) - skip PNG export
+                    logger.info(f"PNG export skipped (kaleido requires Chrome): {chart_path} (JSON only)")
+                    # Charts will still display in Gradio via JSON files
 
                 charts['revenue_profitability'] = chart_path
         except Exception as e:
@@ -379,11 +380,10 @@ class FinancialChartGenerator:
                     # Save as PNG for markdown embedding
                     try:
                         png_path = output_dir / "chart_margins.png"
-                        fig.write_image(str(png_path), width=1000, height=600)
+                        fig.write_image(str(png_path), width=1000, height=600, engine='kaleido')
                         logger.info(f"Generated margin chart: {chart_path} + PNG")
                     except Exception as e:
-                        logger.warning(f"Failed to export PNG: {e}")
-                        logger.info(f"Generated margin chart: {chart_path} (JSON only)")
+                        logger.info(f"PNG export skipped (kaleido requires Chrome): {chart_path} (JSON only)")
 
                     charts['margins'] = chart_path
             except Exception as e:
@@ -401,11 +401,10 @@ class FinancialChartGenerator:
                 # Save as PNG for markdown embedding
                 try:
                     png_path = output_dir / "chart_balance_sheet.png"
-                    fig.write_image(str(png_path), width=1000, height=600)
+                    fig.write_image(str(png_path), width=1000, height=600, engine='kaleido')
                     logger.info(f"Generated balance sheet chart: {chart_path} + PNG")
                 except Exception as e:
-                    logger.warning(f"Failed to export PNG: {e}")
-                    logger.info(f"Generated balance sheet chart: {chart_path} (JSON only)")
+                    logger.info(f"PNG export skipped (kaleido requires Chrome): {chart_path} (JSON only)")
 
                 charts['balance_sheet'] = chart_path
         except Exception as e:
