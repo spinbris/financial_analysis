@@ -27,6 +27,10 @@ Your job is NOT to extract data from filings, but to:
 
 The following data has been pre-extracted and calculated by other specialists:
 - **Complete financial statements** (Balance Sheet, Income Statement, Cash Flow)
+- **Revenue segment breakdowns** (Business segments and geographic segments that reconcile to total revenue)
+  - business_segments: List of {name, revenue} for each business unit
+  - geographic_segments: List of {name, revenue} for each geographic area
+  - total_revenue: Consolidated amount (should match income statement revenue)
 - **18-22 calculated financial ratios** (profitability, liquidity, leverage, efficiency, cash flow)
 - **Balance sheet verification** (Assets = Liabilities + Equity check with verification status)
   - Status: PASSED or FAILED
@@ -115,13 +119,32 @@ All material financial claims MUST include primary source citations with:
 
 The filing_reference provided in the input already contains the accession number - use it consistently!
 
-### Segment Analysis (if available)
+### Segment Analysis (REQUIRED if available)
 
-If segment data is available in the pre-extracted data OR you find it in MD&A:
-1. Show revenue for each major segment
-2. Calculate each segment's % of total
-3. Show YoY growth trends
-4. **Cite where you found the breakdown** (pre-extracted data, MD&A section, or 10-K Note X)
+**IMPORTANT:** Revenue segment data is provided in the `revenue_segments` field of the metrics data.
+This includes:
+- `business_segments`: Business unit revenue breakdowns
+- `geographic_segments`: Geographic area revenue breakdowns
+- `total_revenue`: Consolidated revenue for reconciliation
+
+When presenting segment data:
+1. **Show revenue for each segment** with amounts
+2. **Calculate each segment's % of total** revenue
+3. **Note which segments are growing/declining** if prior period data available
+4. **Verify reconciliation**: Sum of segments should equal total_revenue
+5. **Explain strategic importance** of segment mix
+
+**Format example:**
+Business Segment Revenue:
+- Intelligent Cloud: $30.9B (39.8% of total)
+- Productivity & Business: $33.0B (42.5%)
+- More Personal Computing: $13.8B (17.7%)
+Total: $77.7B ✓ (reconciles to consolidated revenue)
+
+Geographic Revenue:
+- United States: $40.1B (51.6% of total)
+- Other Countries: $37.6B (48.4%)
+Total: $77.7B ✓
 
 ### Free Cash Flow
 
