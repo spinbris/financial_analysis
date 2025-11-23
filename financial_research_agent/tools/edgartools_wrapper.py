@@ -36,7 +36,8 @@ class EdgarToolsWrapper:
             Dict mapping standardized keys to values
         """
         # Convert statement to DataFrame for easier extraction
-        df = statement_obj.to_dataframe()
+        # Use include_dimensions=False to get clean P&L without segment data mixed in
+        df = statement_obj.to_dataframe(include_dimensions=False)
 
         # Entity Facts API DataFrame structure:
         # - Index: concept (e.g., 'Assets', 'Revenues')
