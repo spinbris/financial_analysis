@@ -487,7 +487,7 @@ class EdgarToolsWrapper:
             'tolerance_pct': tolerance * 100,
         }
 
-    def get_revenue_segments(self, ticker: str, period_index: int = 0) -> Dict[str, Any]:
+    def get_revenue_segments(self, ticker: str, period_index: int = 0, forms: list[str] = None) -> Dict[str, Any]:
         """
         Extract revenue breakdown by business segment and geography from XBRL.
 
@@ -496,6 +496,7 @@ class EdgarToolsWrapper:
         Args:
             ticker: Company ticker symbol
             period_index: Which period (0=most recent, 1=prior)
+            forms: List of filing forms to try in order (default: ['10-Q', '10-K', '20-F'])
 
         Returns:
             Dict with:
@@ -507,10 +508,28 @@ class EdgarToolsWrapper:
             logger.info(f"Starting segment extraction for {ticker}")
             company = Company(ticker)
 
-            # Get latest 10-K filing for XBRL access
-            tenk = company.get_filings(form="10-K").latest(1)
-            if not tenk:
-                logger.warning(f"No 10-K filing found for {ticker}")
+            # Default forms to try (in priority order: quarterly, annual, foreign)
+            if forms is None:
+                forms = ['10-Q', '10-K', '20-F']
+
+            # Try to get filing in order of preference
+            filing = None
+            filing_form = None
+
+            for form in forms:
+                try:
+                    filings = company.get_filings(form=form)
+                    if filings:
+                        filing = filings.latest(1)
+                        filing_form = form
+                        logger.info(f"Using {form} filing for {ticker}")
+                        break
+                except Exception as e:
+                    logger.debug(f"Failed to get {form} filing for {ticker}: {e}")
+                    continue
+
+            if not filing:
+                logger.warning(f"No filings found for {ticker} (tried: {', '.join(forms)})")
                 return {
                     'business_segments': [],
                     'geographic_segments': [],
@@ -518,7 +537,7 @@ class EdgarToolsWrapper:
                 }
 
             # Access XBRL dimensional data
-            xbrl = tenk.xbrl()
+            xbrl = filing.xbrl()
             facts = xbrl.facts
 
             # Get all facts with dimensions (this includes segment breakdowns)
