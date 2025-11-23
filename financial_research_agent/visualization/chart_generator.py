@@ -427,7 +427,7 @@ def generate_charts_for_analysis(session_dir: Path, ticker: str, metrics_results
     """
     import os
 
-    identity = os.getenv("EDGAR_IDENTITY", "User user@example.com")
+    identity = os.getenv("SEC_EDGAR_USER_AGENT", "FinancialResearchAgent/1.0 (user@example.com)")
 
     try:
         generator = FinancialChartGenerator(ticker, identity)
