@@ -2375,6 +2375,10 @@ The following companies are not yet in the knowledge base:
         """Launch the Gradio app."""
         app = self.create_interface()
 
+        # Get absolute path to output directory for file serving
+        from pathlib import Path
+        output_dir = Path(AgentConfig.OUTPUT_DIR).resolve()
+
         # Default launch settings
         launch_settings = {
             'server_name': '0.0.0.0',
@@ -2383,6 +2387,7 @@ The following companies are not yet in the knowledge base:
             'show_error': True,
             'inbrowser': True,  # Auto-open browser
             'favicon_path': None,
+            'allowed_paths': [str(output_dir)],  # Allow serving files from output directory
         }
         launch_settings.update(kwargs)
 
