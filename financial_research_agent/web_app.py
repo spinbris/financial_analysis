@@ -288,7 +288,7 @@ class WebApp:
             margin_chart_fig,
             metrics_chart_fig,
             gr.update(visible=has_banking_ratios),  # Show banking tab only if banking ratios exist
-            str(dir_path / "07_comprehensive_report.md") if (dir_path / "07_comprehensive_report.md").exists() else None  # Download button
+            str(dir_path / "07_comprehensive_report.md") if (dir_path / "07_comprehensive_report.md").exists() else ""  # Download button - empty string to avoid Gradio errors
         )
 
     def query_knowledge_base(
@@ -986,11 +986,12 @@ class WebApp:
             has_banking_ratios = reports.get('banking_ratios') is not None
 
             # Download button value - just the file path string, Gradio handles the rest
+            # Use empty string instead of None to avoid Gradio serialization errors
             if self.current_session_dir:
                 comp_report_path = self.current_session_dir / "07_comprehensive_report.md"
-                download_btn_value = str(comp_report_path) if comp_report_path.exists() else None
+                download_btn_value = str(comp_report_path) if comp_report_path.exists() else ""
             else:
-                download_btn_value = None
+                download_btn_value = ""
 
             yield (
                 status_msg,
@@ -1025,7 +1026,8 @@ If this error persists, please check:
 3. SEC EDGAR is accessible
 """
             print(f"\n{'='*60}\nERROR IN ANALYSIS:\n{'='*60}\n{error_details}\n{'='*60}\n")
-            yield (error_msg, "", "", "", "", "", "", "", "", "", None, None, gr.update(visible=False), None)
+            # Use empty string for download button instead of None to avoid Gradio serialization errors
+            yield (error_msg, "", "", "", "", "", "", "", "", "", None, None, gr.update(visible=False), "")
 
     def _load_cost_summary(self) -> str:
         """Load cost summary from cost_report.json for status display."""
