@@ -288,7 +288,6 @@ class WebApp:
             reports.get('edgar_filings', '*EDGAR filings data not available for this analysis*'),
             margin_chart_fig,
             metrics_chart_fig,
-            gr.update(visible=has_banking_ratios),  # Show banking tab only if banking ratios exist
             # Download button removed temporarily
         )
 
@@ -901,8 +900,6 @@ class WebApp:
                             reports.get('edgar_filings', ''),
                             None,  # Charts not available yet
                             None,
-                            None,
-                            gr.update(visible=has_banking)  # Banking tab visibility
                         )
 
             # Wait for analysis to complete
@@ -1008,7 +1005,6 @@ class WebApp:
                 reports.get('edgar_filings', '*EDGAR filings data not available for this analysis*'),
                 margin_chart_fig,
                 metrics_chart_fig,
-                gr.update(visible=has_banking_ratios),  # Show banking tab only if ratios exist
                 # Download button removed temporarily
             )
 
@@ -2019,7 +2015,7 @@ The following companies are not yet in the knowledge base:
                                 )
 
                         # ==================== TAB 4.5: Banking Ratios (Conditional) ====================
-                        with gr.Tab("🏦 Banking Ratios", id=8, visible=False) as banking_ratios_tab:
+                        with gr.Tab("🏦 Banking Ratios", id=8) as banking_ratios_tab:
                             gr.Markdown(
                                 """
                                 ## Banking Regulatory Ratios Analysis
@@ -2258,7 +2254,6 @@ The following companies are not yet in the knowledge base:
                     edgar_filings_output,
                     margin_chart,
                     metrics_chart,
-                    banking_ratios_tab,  # NEW: Tab visibility
                     # download_comp_md  # TEMPORARILY DISABLED
                 ]
             )
@@ -2288,7 +2283,6 @@ The following companies are not yet in the knowledge base:
                     edgar_filings_output,
                     margin_chart,
                     metrics_chart,
-                    banking_ratios_tab,  # NEW: Tab visibility
                     # download_comp_md  # TEMPORARILY DISABLED
                 ]
             )
