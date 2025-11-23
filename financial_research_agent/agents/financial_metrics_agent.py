@@ -41,7 +41,7 @@ def extract_financial_metrics(ticker: str) -> Dict:
         - summary: Human-readable ratio summary
     """
     # Set identity from environment
-    identity = os.getenv("EDGAR_IDENTITY", "User user@example.com")
+    identity = os.getenv("SEC_EDGAR_USER_AGENT", "FinancialResearchAgent/1.0 (user@example.com)")
 
     # Initialize tools
     edgar = EdgarToolsWrapper(identity=identity)

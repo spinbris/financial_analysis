@@ -21,7 +21,7 @@ class EdgarToolsWrapper:
 
     def __init__(self, identity: Optional[str] = None):
         if identity is None:
-            identity = os.getenv("EDGAR_IDENTITY", "User user@example.com")
+            identity = os.getenv("SEC_EDGAR_USER_AGENT", "FinancialResearchAgent/1.0 (user@example.com)")
         set_identity(identity)
 
     def _extract_statement_data(self, statement_obj: Any, period_index: int = 0) -> Dict[str, float]:
