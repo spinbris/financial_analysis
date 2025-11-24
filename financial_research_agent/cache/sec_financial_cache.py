@@ -485,6 +485,140 @@ class SecFinancialCache:
             logger.error(f"Error retrieving cached financials for {ticker}: {e}")
             conn.close()
             return None
+        
+        
+    def cache_company(
+        self,
+        ticker: str,
+        max_filings: int = 4,
+        force_refresh: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Cache a complete company with multiple filings.
+        
+        Args:
+            ticker: Stock ticker symbol
+            max_filings: Maximum number of filings to cache (default 4 = 1 annual + 3 quarterly)
+            force_refresh: Force re-cache even if data exists
+            
+        Returns:
+            Dict with caching results:
+            {
+                'ticker': str,
+                'filings_cached': int,
+                'total_items': int,
+                'is_foreign': bool,
+                'cache_time_seconds': float
+            }
+        """
+        import time
+        start_time = time.time()
+        
+        # Check if already cached and current
+        if not force_refresh:
+            status = self.check_cache_status(ticker)
+            if status['cached'] and status['current']:
+                logger.info(f"{ticker} already cached and current, skipping")
+                return {
+                    'ticker': ticker,
+                    'filings_cached': status['filing_count'],
+                    'total_items': self._get_item_count(ticker),
+                    'is_foreign': status['is_foreign'],
+                    'cache_time_seconds': 0,
+                    'from_cache': True
+                }
+        
+        # Get required filings
+        try:
+            filings_info = self.get_required_filings(ticker)
+        except Exception as e:
+            logger.error(f"Error getting filings for {ticker}: {e}")
+            return {
+                'ticker': ticker,
+                'filings_cached': 0,
+                'total_items': 0,
+                'error': str(e),
+                'cache_time_seconds': time.time() - start_time
+            }
+        
+        filings_cached = 0
+        total_items = 0
+        
+        # Cache annual filing
+        try:
+            annual_data = filings_info['annual'].to_dict() if hasattr(filings_info['annual'], 'to_dict') else dict(filings_info['annual'])
+            annual_data['is_foreign'] = filings_info['is_foreign']
+            annual_data['accounting_standard'] = filings_info['accounting_standard']
+            
+            filing_id = self.cache_filing(ticker, annual_data)
+            if filing_id:
+                filings_cached += 1
+                total_items += self._get_filing_item_count(filing_id)
+                logger.info(f"Cached annual filing for {ticker}")
+        except Exception as e:
+            logger.error(f"Error caching annual filing for {ticker}: {e}")
+        
+        # Cache quarterly filings (up to max_filings - 1)
+        quarterlies_to_cache = min(len(filings_info['quarterlies']), max_filings - 1)
+        
+        for i, quarterly in enumerate(filings_info['quarterlies'][:quarterlies_to_cache]):
+            try:
+                quarterly_data = quarterly.to_dict() if hasattr(quarterly, 'to_dict') else dict(quarterly)
+                quarterly_data['is_foreign'] = filings_info['is_foreign']
+                quarterly_data['accounting_standard'] = filings_info['accounting_standard']
+                
+                filing_id = self.cache_filing(ticker, quarterly_data)
+                if filing_id:
+                    filings_cached += 1
+                    total_items += self._get_filing_item_count(filing_id)
+                    logger.info(f"Cached quarterly {i+1} for {ticker}")
+            except Exception as e:
+                logger.error(f"Error caching quarterly {i+1} for {ticker}: {e}")
+        
+        elapsed = time.time() - start_time
+        
+        result = {
+            'ticker': ticker,
+            'filings_cached': filings_cached,
+            'total_items': total_items,
+            'is_foreign': filings_info['is_foreign'],
+            'cache_time_seconds': round(elapsed, 2),
+            'from_cache': False
+        }
+        
+        logger.info(f"Cached {ticker}: {filings_cached} filings, {total_items} items in {elapsed:.2f}s")
+        
+        return result
+
+
+    def _get_item_count(self, ticker: str) -> int:
+        """Get total number of cached items for a ticker."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        total = 0
+        for table in ['balance_sheet', 'income_statement', 'cash_flow']:
+            cursor.execute(f"SELECT COUNT(*) FROM {table} WHERE ticker = ?", (ticker.upper(),))
+            total += cursor.fetchone()[0]
+        
+        conn.close()
+        return total
+
+
+    def _get_filing_item_count(self, filing_id: int) -> int:
+        """Get total number of items for a specific filing."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        total = 0
+        for table in ['balance_sheet', 'income_statement', 'cash_flow']:
+            cursor.execute(f"SELECT COUNT(*) FROM {table} WHERE filing_id = ?", (filing_id,))
+            total += cursor.fetchone()[0]
+        
+        conn.close()
+        return total    
+            
+            
 
     # ========================================
     # CORE METHODS - Implement next
@@ -566,38 +700,13 @@ class SecFinancialCache:
             "is_foreign": is_foreign,
         }
 
-    # def cache_filing(self, ticker: str, filing_data: Dict[str, Any]) -> int:
-    #     """
-    #     Cache a single SEC filing.
-
-    #     Args:
-    #         ticker: Stock ticker symbol
-    #         filing_data: Complete filing data from edgartools
-
-    #     Returns:
-    #         filing_id: Database ID of cached filing
-    #     """
-    #     # TODO: Implement tomorrow (Day 2)
-    #     pass
-
-    # def get_cached_financials(
-    #     self, ticker: str, periods: int = 4
-    # ) -> Optional[Dict[str, Any]]:
-    #     """
-    #     Retrieve cached financial data for a company.
-
-    #     Args:
-    #         ticker: Stock ticker symbol
-    #         periods: Number of periods to retrieve
-
-    #     Returns:
-    #         Complete financial data or None if not cached
-    #     """
-    #     # TODO: Implement tomorrow (Day 2)
-    #     pass
-
+    
     def search_line_items(
-        self, ticker: str, search_term: str, statement: str = "all"
+        self,
+        search_term: str,
+        ticker: Optional[str] = None,
+        statement_type: Optional[str] = None,
+        limit: int = 50
     ) -> List[Dict[str, Any]]:
         """
         Search for line items across financial statements.
@@ -610,8 +719,121 @@ class SecFinancialCache:
         Returns:
             List of matching line items
         """
-        # TODO: Implement Day 3
-        pass
+        conn = self._get_connection()
+        cursor = conn.cursor()
+
+        results = []
+
+        # Tables to search
+        if statement_type:
+            table_map = {
+                'balance': 'balance_sheet',
+                'income': 'income_statement',
+                'cash_flow': 'cash_flow'
+            }
+            tables = [table_map.get(statement_type)]
+            if tables[0] is None:
+                return []
+        else:
+            tables = ['balance_sheet', 'income_statement', 'cash_flow']
+
+        for table in tables:
+            query = f"""
+                SELECT 
+                    '{table}' as statement_type,
+                    ticker,
+                    filing_date,
+                    concept,
+                    label,
+                    value,
+                    currency
+                FROM {table}
+                WHERE (label LIKE ? OR concept LIKE ?)
+            """
+            params = [f'%{search_term}%', f'%{search_term}%']
+
+            if ticker:
+                query += " AND ticker = ?"
+                params.append(ticker.upper())
+
+            query += f" ORDER BY filing_date DESC LIMIT {limit}"
+
+            cursor.execute(query, params)
+
+            for row in cursor.fetchall():
+                results.append({
+                    'statement_type': row['statement_type'],
+                    'ticker': row['ticker'],
+                    'filing_date': row['filing_date'],
+                    'concept': row['concept'],
+                    'label': row['label'],
+                    'value': row['value'],
+                    'currency': row['currency']
+                })
+
+        conn.close()
+
+        # Sort by relevance then by date
+        def sort_key(item):
+            exact = search_term.lower() in item['label'].lower()
+            return (not exact, item['filing_date'])
+
+        results.sort(key=sort_key, reverse=True)
+
+        return results[:limit]
+    
+    
+    def get_specific_items(
+        self,
+        ticker: str,
+        items: List[str]
+    ) -> Dict[str, Optional[float]]:
+        """
+        Get specific financial items by concept OR label.
+    
+        Args:
+            ticker: Stock ticker symbol
+            items: List of concept names OR labels (e.g., ['Total Assets', 'Cash'])
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+    
+        results = {}
+    
+        for item in items:
+            for table in ['balance_sheet', 'income_statement', 'cash_flow']:
+                #search by both concept and label
+                cursor.execute(f"""
+                    SELECT value, filing_date
+                    FROM {table}
+                    WHERE ticker = ? 
+                    AND (concept = ? OR label LIKE ? OR label LIKE ?)
+                    ORDER BY filing_date DESC
+                    LIMIT 1
+                """, (ticker.upper(), item, item, f'%{item}%'))
+                
+                row = cursor.fetchone()
+                if row:
+                    results[item] = row['value']
+                    break
+            else:
+                results[item] = None
+
+        conn.close()
+        return results
+
+    def compare_companies(
+        self,
+        tickers: List[str],
+        concepts: List[str]
+    ) -> Dict[str, Dict[str, Optional[float]]]:
+        """Compare specific metrics across multiple companies."""
+        results = {}
+        
+        for ticker in tickers:
+            results[ticker] = self.get_specific_items(ticker, concepts)
+        
+        return results
 
     def get_cache_stats(self) -> Dict[str, Any]:
         """
