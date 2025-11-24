@@ -17,6 +17,22 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any
 import logging
+from edgar import Company, Filing, set_identity
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Set EDGAR identity
+edgar_identity = os.getenv("EDGAR_IDENTITY") or os.getenv("SEC_EDGAR_USER_AGENT")
+if edgar_identity:
+    set_identity(edgar_identity)
+else:
+    set_identity("FinancialResearchAgent/1.0 (stephen.parton@sjpconsulting.com)")
+
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -109,10 +125,67 @@ class SecFinancialCache:
             max_age_days: Maximum age in days before cache is stale
             
         Returns:
-            Dict with cache status information
+            Dict with cache status information:
+            {
+                'cached': bool,
+                'current': bool,
+                'needs_update': bool,
+                'cache_age_days': int,
+                'filing_count': int,
+                'latest_filing_date': str,
+                'is_foreign': bool
+            }
         """
-        # TODO: Implement in afternoon session
-        pass
+        conn = self._get_connection()
+        cursor = conn.cursor()
+    
+        # Check if ticker exists in cache
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as filing_count,
+                MAX(filing_date) as latest_date,
+                MAX(cached_at) as last_cached,
+                MAX(is_foreign) as is_foreign
+            FROM filings_metadata
+            WHERE ticker = ?
+        """, (ticker.upper(),))
+        
+        result = cursor.fetchone()
+        filing_count = result['filing_count']
+        latest_date = result['latest_date']
+        last_cached = result['last_cached']
+        is_foreign = bool(result['is_foreign']) if result['is_foreign'] is not None else False
+        
+        conn.close()
+            
+            # Not cached at all
+        if filing_count == 0:
+            return {
+                'cached': False,
+                'current': False,
+                'needs_update': True,
+                'cache_age_days': None,
+                'filing_count': 0,
+                'latest_filing_date': None,
+                'is_foreign': False
+            }
+        
+        # Calculate cache age
+        cached_datetime = datetime.fromisoformat(last_cached)
+        age_days = (datetime.now() - cached_datetime).days
+        
+        # Check if current (within max_age_days)
+        is_current = age_days <= max_age_days
+        
+        return {
+            'cached': True,
+            'current': is_current,
+            'needs_update': not is_current,
+            'cache_age_days': age_days,
+            'filing_count': filing_count,
+            'latest_filing_date': latest_date,
+            'is_foreign': is_foreign
+        }
     
     def cache_filing(
         self, 
@@ -214,7 +287,81 @@ class SecFinancialCache:
         """Close database connection and cleanup."""
         logger.info("SecFinancialCache closed")
 
-
+    def get_required_filings(self, ticker: str) -> Dict[str, Any]:
+        """
+        Determine which filings are required for a ticker.
+        
+        Strategy:
+        - Get latest annual report (10-K or 20-F)
+        - Get subsequent quarterly reports (10-Q or 6-K)
+        - Max 3 quarterly reports
+        
+        Args:
+            ticker: Stock ticker symbol
+            
+        Returns:
+            Dict with filing requirements:
+            {
+                'annual': Filing object,
+                'annual_type': '10-K' or '20-F',
+                'quarterlies': List[Filing],
+                'is_foreign': bool,
+                'accounting_standard': 'US-GAAP' or 'IFRS'
+            }
+        """
+        
+        
+        try:
+            # Get company
+            company = Company(ticker)
+            
+            # Get recent filings (last 2 years to ensure we get everything)
+            filings = company.get_filings(form=['10-K', '10-Q', '20-F', '6-K']).to_pandas()
+            
+            if len(filings) == 0:
+                raise ValueError(f"No filings found for {ticker}")
+            
+            # Find latest annual report (10-K or 20-F)
+            annual_filing = None
+            is_foreign = False
+            
+            for _, filing in filings.iterrows():
+                if filing['form'] in ['10-K', '20-F']:
+                    annual_filing = filing
+                    is_foreign = filing['form'] == '20-F'
+                    break
+            
+            if annual_filing is None:
+                raise ValueError(f"No annual report (10-K or 20-F) found for {ticker}")
+            
+            # Determine quarterly form type
+            quarterly_form = '6-K' if is_foreign else '10-Q'
+            accounting_standard = 'IFRS' if is_foreign else 'US-GAAP'
+            
+            # Get subsequent quarterly filings (max 3)
+            annual_date = annual_filing['filing_date']
+            subsequent_quarterlies = []
+            
+            for _, filing in filings.iterrows():
+                if filing['form'] == quarterly_form and filing['filing_date'] > annual_date:
+                    subsequent_quarterlies.append(filing)
+                    if len(subsequent_quarterlies) >= 3:
+                        break
+            
+            logger.info(f"Found filings for {ticker}: {annual_filing['form']} + {len(subsequent_quarterlies)} quarterlies")
+            
+            return {
+                'annual': annual_filing,
+                'annual_type': annual_filing['form'],
+                'quarterlies': subsequent_quarterlies,
+                'is_foreign': is_foreign,
+                'accounting_standard': accounting_standard,
+                'company': company
+            }
+        
+        except Exception as e:
+            logger.error(f"Error getting filings for {ticker}: {e}")
+            raise
 # ========================================
 # UTILITY FUNCTIONS
 # ========================================
@@ -244,3 +391,4 @@ def get_filing_strategy(form_type: str, is_foreign: bool = False) -> Dict[str, A
             'is_foreign': False,
             'accounting_standard': 'US-GAAP'
         }
+        
