@@ -32,15 +32,13 @@ else:
     set_identity("FinancialResearchAgent/1.0 (stephen.parton@sjpconsulting.com)")
 
 
-
-
 logger = logging.getLogger(__name__)
 
 
 class SecFinancialCache:
     """
     SQLite cache for SEC financial data.
-    
+
     Features:
     - Fast retrieval (0.01-0.05s vs 3-5s download)
     - Support for 10-K, 10-Q, 20-F, 6-K filings
@@ -48,22 +46,22 @@ class SecFinancialCache:
     - Full-text search across line items
     - Multi-period queries
     """
-    
+
     def __init__(self, db_path: str = "data/sec_cache/financials.db"):
         """
         Initialize the financial cache.
-        
+
         Args:
             db_path: Path to SQLite database file
         """
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Initialize database
         self._init_database()
-        
+
         logger.info(f"SecFinancialCache initialized: {self.db_path}")
-    
+
     def _init_database(self):
         """Initialize database with schema if needed."""
         # Check if database exists and has tables
@@ -82,48 +80,424 @@ class SecFinancialCache:
                 logger.warning("Database exists but schema missing. Creating schema...")
                 self._create_schema()
             conn.close()
-    
+
     def _create_schema(self):
         """Create database schema from schema.sql."""
         schema_path = Path(__file__).parent / "schema.sql"
-        
+
         if not schema_path.exists():
             raise FileNotFoundError(f"Schema file not found: {schema_path}")
-        
+
         conn = self._get_connection()
-        with open(schema_path, 'r') as f:
+        with open(schema_path, "r") as f:
             schema_sql = f.read()
             conn.executescript(schema_sql)
         conn.commit()
         conn.close()
-        
+
         logger.info("Database schema created successfully")
-    
+
     def _get_connection(self) -> sqlite3.Connection:
         """Get database connection with optimizations."""
         conn = sqlite3.connect(str(self.db_path))
         conn.row_factory = sqlite3.Row  # Access columns by name
-        
+
         # Performance optimizations
         conn.execute("PRAGMA journal_mode=WAL")  # Write-Ahead Logging
         conn.execute("PRAGMA synchronous=NORMAL")  # Faster writes
         conn.execute("PRAGMA cache_size=10000")  # 10MB cache
         conn.execute("PRAGMA temp_store=MEMORY")  # Use memory for temp tables
-        
+
         return conn
+
+
+    def _cache_filing_metadata(
+        self,
+        conn: sqlite3.Connection,
+        ticker: str,
+        filing_data: Dict[str, Any],
+        is_foreign: bool,
+        accounting_standard: str,
+    ) -> int:
+        """
+        Cache filing metadata.
+
+        Args:
+            conn: Database connection
+            ticker: Stock ticker
+            filing_data: Filing information from edgartools
+            is_foreign: Whether company is foreign issuer
+            accounting_standard: US-GAAP or IFRS
+
+        Returns:
+            filing_id: Database ID of inserted filing
+        """
+        cursor = conn.cursor()
+
+        now = datetime.now().isoformat()
+
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO filings_metadata (
+                ticker,
+                cik,
+                company_name,
+                form_type,
+                filing_date,
+                fiscal_year,
+                fiscal_period,
+                accession_number,
+                filing_url,
+                is_foreign,
+                accounting_standard,
+                cached_at,
+                last_accessed
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+            (
+                ticker.upper(),
+                filing_data.get("cik"),
+                filing_data.get("company_name"),
+                filing_data.get("form"),
+                filing_data.get("filing_date"),
+                filing_data.get("fiscal_year"),
+                filing_data.get(
+                    "fiscal_period",
+                    "FY" if filing_data.get("form") in ["10-K", "20-F"] else None,
+                ),
+                filing_data.get("accession_number"),
+                filing_data.get("filing_url"),
+                1 if is_foreign else 0,
+                accounting_standard,
+                now,
+                now,
+            ),
+        )
+
+        # Persist the insert immediately to ensure lastrowid is stable across connections
+        conn.commit()
+
+        filing_id = cursor.lastrowid
+
+        logger.info(
+            f"Cached filing metadata: {ticker} {filing_data.get('form')} (id={filing_id})"
+        )
+
+        return filing_id
+
+
+    def _cache_statement(
+        self,
+        conn: sqlite3.Connection,
+        filing_id: int,
+        ticker: str,
+        filing_date: str,
+        statement_type: str,
+        statement_data: Any
+    ) -> int:
+        """
+        Cache a financial statement (balance sheet, income, or cash flow).
+        
+        EdgarTools 4.x returns statements as dicts with 'data' key containing line items.
+        """
+        cursor = conn.cursor()
+        
+        # Map statement type to table name
+        table_map = {
+            'balance': 'balance_sheet',
+            'income': 'income_statement',
+            'cash_flow': 'cash_flow'
+        }
+        
+        table_name = table_map.get(statement_type)
+        if not table_name:
+            raise ValueError(f"Invalid statement type: {statement_type}")
+        
+        items_cached = 0
+        
+        try:
+            # EdgarTools 4.x format: dict with 'data' key
+            if isinstance(statement_data, dict) and 'data' in statement_data:
+                line_items = statement_data['data']
+                
+                for item in line_items:
+                    # Skip abstract items (headers)
+                    if item.get('is_abstract', False):
+                        continue
+                    
+                    concept = item.get('concept', 'unknown')
+                    label = item.get('label', concept)
+                    
+                    # Get the most recent value from 'values' dict
+                    values = item.get('values', {})
+                    if not values:
+                        continue
+                    
+                    # Get the first (most recent) value
+                    # Keys are like 'instant_2025-09-27' or 'duration_...'
+                    for period_key, value in values.items():
+                        # Skip empty values
+                        if value == '' or value is None:
+                            continue
+                        
+                        # Get units
+                        units = item.get('units', {})
+                        unit = units.get(period_key, 'usd')
+                        
+                        try:
+                            cursor.execute(f"""
+                                INSERT INTO {table_name} (
+                                    filing_id,
+                                    ticker,
+                                    filing_date,
+                                    concept,
+                                    label,
+                                    value,
+                                    currency,
+                                    unit,
+                                    level
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """, (
+                                filing_id,
+                                ticker.upper(),
+                                filing_date,
+                                concept,
+                                label,
+                                float(value) if value is not None else None,
+                                'USD',
+                                unit,
+                                item.get('level', 0)
+                            ))
+                            items_cached += 1
+                        except (ValueError, TypeError) as e:
+                            # Skip items that can't be converted to float
+                            continue
+                        
+                        # Only cache the first (most recent) period
+                        break
+            
+            logger.info(f"Cached {items_cached} items for {statement_type} statement")
+            
+        except Exception as e:
+            logger.error(f"Error caching {statement_type} statement: {e}")
+            raise
+        
+        return items_cached
+
+
+    def cache_filing(
+        self, 
+        ticker: str, 
+        filing_data: Dict[str, Any]
+    ) -> int:
+        """Cache a complete SEC filing."""
+        from edgar import Company
+        
+        conn = self._get_connection()
+        
+        try:
+            is_foreign = filing_data.get('is_foreign', False)
+            accounting_standard = filing_data.get('accounting_standard', 'US-GAAP')
+            
+            filing_id = self._cache_filing_metadata(
+                conn,
+                ticker,
+                filing_data,
+                is_foreign,
+                accounting_standard
+            )
+            
+            print(f"\n🔍 Debug: Getting filing object for {ticker}")
+            
+            company = Company(ticker)
+            form_type = filing_data.get('form')
+            filing_date = filing_data.get('filing_date')
+            
+            print(f"   Looking for {form_type} on {filing_date}")
+            
+            filings_list = company.get_filings(form=form_type)
+            print(f"   Found {len(filings_list)} {form_type} filings")
+            
+            filing_obj = None
+            for filing in filings_list:
+                print(f"   Checking filing from {filing.filing_date}")
+                if str(filing.filing_date) == str(filing_date):
+                    filing_obj = filing
+                    print(f"   ✅ Found matching filing!")
+                    break
+            
+            if filing_obj is None:
+                print(f"   ❌ Could not find matching filing")
+                conn.commit()
+                return filing_id
+            
+            # Check what methods are available
+            print(f"   Filing object type: {type(filing_obj)}")
+            print(f"   Available methods: {[m for m in dir(filing_obj) if not m.startswith('_')]}")
+            
+            # Try different ways to get financials
+            financials = None
+                
+            try:
+                xbrl = filing_obj.xbrl()
+                
+                if xbrl:
+                    print(f"   ✅ Got XBRL object")
+                    
+                    # Get Balance Sheet
+                    bs = xbrl.get_statement_by_type('BalanceSheet')
+                    if bs and isinstance(bs, dict) and 'data' in bs:
+                        items = self._cache_statement(conn, filing_id, ticker, filing_date, 'balance', bs)
+                        print(f"   ✅ Cached {items} balance sheet items")
+                    
+                    # Get Income Statement
+                    inc = xbrl.get_statement_by_type('IncomeStatement')
+                    if inc and isinstance(inc, dict) and 'data' in inc:
+                        items = self._cache_statement(conn, filing_id, ticker, filing_date, 'income', inc)
+                        print(f"   ✅ Cached {items} income statement items")
+                    
+                    # Get Cash Flow Statement
+                    cf = xbrl.get_statement_by_type('CashFlowStatement')
+                    if cf and isinstance(cf, dict) and 'data' in cf:
+                        items = self._cache_statement(conn, filing_id, ticker, filing_date, 'cash_flow', cf)
+                        print(f"   ✅ Cached {items} cash flow items")
     
+            except Exception as e:
+                print(f"   ❌ XBRL extraction error: {e}")
+            
+            conn.commit()
+            return filing_id
+            
+        except Exception as e:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+   
+
+
+    def get_cached_financials(
+        self, ticker: str, periods: int = 4
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve cached financial data for a company.
+
+        Args:
+            ticker: Stock ticker symbol
+            periods: Number of periods to retrieve
+
+        Returns:
+            Dict with complete financial data or None if not cached
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+
+        try:
+            # Get filing metadata
+            cursor.execute(
+                """
+                SELECT *
+                FROM filings_metadata
+                WHERE ticker = ?
+                ORDER BY filing_date DESC
+                LIMIT ?
+            """,
+                (ticker.upper(), periods),
+            )
+
+            filings = [dict(row) for row in cursor.fetchall()]
+
+            if not filings:
+                return None
+
+            # Get financial statements for each filing
+            result = {"ticker": ticker.upper(), "periods": []}
+
+            for filing in filings:
+                filing_id = filing["id"]
+
+                # Get balance sheet
+                cursor.execute(
+                    """
+                    SELECT concept, label, value, currency
+                    FROM balance_sheet
+                    WHERE filing_id = ?
+                    ORDER BY id
+                """,
+                    (filing_id,),
+                )
+                balance_sheet = [dict(row) for row in cursor.fetchall()]
+
+                # Get income statement
+                cursor.execute(
+                    """
+                    SELECT concept, label, value, currency
+                    FROM income_statement
+                    WHERE filing_id = ?
+                    ORDER BY id
+                """,
+                    (filing_id,),
+                )
+                income_statement = [dict(row) for row in cursor.fetchall()]
+
+                # Get cash flow
+                cursor.execute(
+                    """
+                    SELECT concept, label, value, currency
+                    FROM cash_flow
+                    WHERE filing_id = ?
+                    ORDER BY id
+                """,
+                    (filing_id,),
+                )
+                cash_flow = [dict(row) for row in cursor.fetchall()]
+
+                # Update last_accessed
+                cursor.execute(
+                    """
+                    UPDATE filings_metadata
+                    SET last_accessed = ?
+                    WHERE id = ?
+                """,
+                    (datetime.now().isoformat(), filing_id),
+                )
+
+                result["periods"].append(
+                    {
+                        "filing_date": filing["filing_date"],
+                        "form_type": filing["form_type"],
+                        "is_foreign": bool(filing["is_foreign"]),
+                        "accounting_standard": filing["accounting_standard"],
+                        "balance_sheet": balance_sheet,
+                        "income_statement": income_statement,
+                        "cash_flow": cash_flow,
+                    }
+                )
+
+            conn.commit()
+            conn.close()
+
+            logger.info(f"Retrieved {len(result['periods'])} periods for {ticker}")
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Error retrieving cached financials for {ticker}: {e}")
+            conn.close()
+            return None
+
     # ========================================
     # CORE METHODS - Implement next
     # ========================================
-    
+
     def check_cache_status(self, ticker: str, max_age_days: int = 7) -> Dict[str, Any]:
         """
         Check if ticker is cached and if cache is current.
-        
+
         Args:
             ticker: Stock ticker symbol
             max_age_days: Maximum age in days before cache is stale
-            
+
         Returns:
             Dict with cache status information:
             {
@@ -138,9 +512,10 @@ class SecFinancialCache:
         """
         conn = self._get_connection()
         cursor = conn.cursor()
-    
+
         # Check if ticker exists in cache
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT 
                 COUNT(*) as filing_count,
                 MAX(filing_date) as latest_date,
@@ -148,118 +523,113 @@ class SecFinancialCache:
                 MAX(is_foreign) as is_foreign
             FROM filings_metadata
             WHERE ticker = ?
-        """, (ticker.upper(),))
-        
+        """,
+            (ticker.upper(),),
+        )
+
         result = cursor.fetchone()
-        filing_count = result['filing_count']
-        latest_date = result['latest_date']
-        last_cached = result['last_cached']
-        is_foreign = bool(result['is_foreign']) if result['is_foreign'] is not None else False
-        
+        filing_count = result["filing_count"]
+        latest_date = result["latest_date"]
+        last_cached = result["last_cached"]
+        is_foreign = (
+            bool(result["is_foreign"]) if result["is_foreign"] is not None else False
+        )
+
         conn.close()
-            
-            # Not cached at all
+
+        # Not cached at all
         if filing_count == 0:
             return {
-                'cached': False,
-                'current': False,
-                'needs_update': True,
-                'cache_age_days': None,
-                'filing_count': 0,
-                'latest_filing_date': None,
-                'is_foreign': False
+                "cached": False,
+                "current": False,
+                "needs_update": True,
+                "cache_age_days": None,
+                "filing_count": 0,
+                "latest_filing_date": None,
+                "is_foreign": False,
             }
-        
+
         # Calculate cache age
         cached_datetime = datetime.fromisoformat(last_cached)
         age_days = (datetime.now() - cached_datetime).days
-        
+
         # Check if current (within max_age_days)
         is_current = age_days <= max_age_days
-        
+
         return {
-            'cached': True,
-            'current': is_current,
-            'needs_update': not is_current,
-            'cache_age_days': age_days,
-            'filing_count': filing_count,
-            'latest_filing_date': latest_date,
-            'is_foreign': is_foreign
+            "cached": True,
+            "current": is_current,
+            "needs_update": not is_current,
+            "cache_age_days": age_days,
+            "filing_count": filing_count,
+            "latest_filing_date": latest_date,
+            "is_foreign": is_foreign,
         }
-    
-    def cache_filing(
-        self, 
-        ticker: str, 
-        filing_data: Dict[str, Any]
-    ) -> int:
-        """
-        Cache a single SEC filing.
-        
-        Args:
-            ticker: Stock ticker symbol
-            filing_data: Complete filing data from edgartools
-            
-        Returns:
-            filing_id: Database ID of cached filing
-        """
-        # TODO: Implement tomorrow (Day 2)
-        pass
-    
-    def get_cached_financials(
-        self, 
-        ticker: str, 
-        periods: int = 4
-    ) -> Optional[Dict[str, Any]]:
-        """
-        Retrieve cached financial data for a company.
-        
-        Args:
-            ticker: Stock ticker symbol
-            periods: Number of periods to retrieve
-            
-        Returns:
-            Complete financial data or None if not cached
-        """
-        # TODO: Implement tomorrow (Day 2)
-        pass
-    
+
+    # def cache_filing(self, ticker: str, filing_data: Dict[str, Any]) -> int:
+    #     """
+    #     Cache a single SEC filing.
+
+    #     Args:
+    #         ticker: Stock ticker symbol
+    #         filing_data: Complete filing data from edgartools
+
+    #     Returns:
+    #         filing_id: Database ID of cached filing
+    #     """
+    #     # TODO: Implement tomorrow (Day 2)
+    #     pass
+
+    # def get_cached_financials(
+    #     self, ticker: str, periods: int = 4
+    # ) -> Optional[Dict[str, Any]]:
+    #     """
+    #     Retrieve cached financial data for a company.
+
+    #     Args:
+    #         ticker: Stock ticker symbol
+    #         periods: Number of periods to retrieve
+
+    #     Returns:
+    #         Complete financial data or None if not cached
+    #     """
+    #     # TODO: Implement tomorrow (Day 2)
+    #     pass
+
     def search_line_items(
-        self, 
-        ticker: str, 
-        search_term: str,
-        statement: str = 'all'
+        self, ticker: str, search_term: str, statement: str = "all"
     ) -> List[Dict[str, Any]]:
         """
         Search for line items across financial statements.
-        
+
         Args:
             ticker: Stock ticker symbol
             search_term: Term to search for (in label or concept)
             statement: Which statement(s) to search (all/balance/income/cash_flow)
-            
+
         Returns:
             List of matching line items
         """
         # TODO: Implement Day 3
         pass
-    
+
     def get_cache_stats(self) -> Dict[str, Any]:
         """
         Get cache statistics and health metrics.
-        
+
         Returns:
             Dict with cache statistics
         """
         conn = self._get_connection()
         cursor = conn.cursor()
-        
+
         # Get counts
         cursor.execute("SELECT COUNT(*) FROM filings_metadata")
         total_filings = cursor.fetchone()[0]
-        
+
         cursor.execute("SELECT COUNT(DISTINCT ticker) FROM filings_metadata")
         unique_companies = cursor.fetchone()[0]
-        
+
         cursor.execute("""
             SELECT 
                 SUM(CASE WHEN is_foreign = 1 THEN 1 ELSE 0 END) as foreign_count,
@@ -267,22 +637,22 @@ class SecFinancialCache:
             FROM filings_metadata
         """)
         foreign, domestic = cursor.fetchone()
-        
+
         # Get database size
         db_size_bytes = self.db_path.stat().st_size
         db_size_mb = db_size_bytes / (1024 * 1024)
-        
+
         conn.close()
-        
+
         return {
-            'total_filings': total_filings,
-            'unique_companies': unique_companies,
-            'us_companies': domestic or 0,
-            'foreign_companies': foreign or 0,
-            'database_size_mb': round(db_size_mb, 2),
-            'database_path': str(self.db_path)
+            "total_filings": total_filings,
+            "unique_companies": unique_companies,
+            "us_companies": domestic or 0,
+            "foreign_companies": foreign or 0,
+            "database_size_mb": round(db_size_mb, 2),
+            "database_path": str(self.db_path),
         }
-    
+
     def close(self):
         """Close database connection and cleanup."""
         logger.info("SecFinancialCache closed")
@@ -290,15 +660,15 @@ class SecFinancialCache:
     def get_required_filings(self, ticker: str) -> Dict[str, Any]:
         """
         Determine which filings are required for a ticker.
-        
+
         Strategy:
         - Get latest annual report (10-K or 20-F)
         - Get subsequent quarterly reports (10-Q or 6-K)
         - Max 3 quarterly reports
-        
+
         Args:
             ticker: Stock ticker symbol
-            
+
         Returns:
             Dict with filing requirements:
             {
@@ -309,86 +679,94 @@ class SecFinancialCache:
                 'accounting_standard': 'US-GAAP' or 'IFRS'
             }
         """
-        
-        
+
         try:
             # Get company
             company = Company(ticker)
-            
+
             # Get recent filings (last 2 years to ensure we get everything)
-            filings = company.get_filings(form=['10-K', '10-Q', '20-F', '6-K']).to_pandas()
-            
+            filings = company.get_filings(
+                form=["10-K", "10-Q", "20-F", "6-K"]
+            ).to_pandas()
+
             if len(filings) == 0:
                 raise ValueError(f"No filings found for {ticker}")
-            
+
             # Find latest annual report (10-K or 20-F)
             annual_filing = None
             is_foreign = False
-            
+
             for _, filing in filings.iterrows():
-                if filing['form'] in ['10-K', '20-F']:
+                if filing["form"] in ["10-K", "20-F"]:
                     annual_filing = filing
-                    is_foreign = filing['form'] == '20-F'
+                    is_foreign = filing["form"] == "20-F"
                     break
-            
+
             if annual_filing is None:
                 raise ValueError(f"No annual report (10-K or 20-F) found for {ticker}")
-            
+
             # Determine quarterly form type
-            quarterly_form = '6-K' if is_foreign else '10-Q'
-            accounting_standard = 'IFRS' if is_foreign else 'US-GAAP'
-            
+            quarterly_form = "6-K" if is_foreign else "10-Q"
+            accounting_standard = "IFRS" if is_foreign else "US-GAAP"
+
             # Get subsequent quarterly filings (max 3)
-            annual_date = annual_filing['filing_date']
+            annual_date = annual_filing["filing_date"]
             subsequent_quarterlies = []
-            
+
             for _, filing in filings.iterrows():
-                if filing['form'] == quarterly_form and filing['filing_date'] > annual_date:
+                if (
+                    filing["form"] == quarterly_form
+                    and filing["filing_date"] > annual_date
+                ):
                     subsequent_quarterlies.append(filing)
                     if len(subsequent_quarterlies) >= 3:
                         break
-            
-            logger.info(f"Found filings for {ticker}: {annual_filing['form']} + {len(subsequent_quarterlies)} quarterlies")
-            
+
+            logger.info(
+                f"Found filings for {ticker}: {annual_filing['form']} + {len(subsequent_quarterlies)} quarterlies"
+            )
+
             return {
-                'annual': annual_filing,
-                'annual_type': annual_filing['form'],
-                'quarterlies': subsequent_quarterlies,
-                'is_foreign': is_foreign,
-                'accounting_standard': accounting_standard,
-                'company': company
+                "annual": annual_filing,
+                "annual_type": annual_filing["form"],
+                "quarterlies": subsequent_quarterlies,
+                "is_foreign": is_foreign,
+                "accounting_standard": accounting_standard,
+                "company": company,
             }
-        
+
         except Exception as e:
             logger.error(f"Error getting filings for {ticker}: {e}")
             raise
+
+
 # ========================================
 # UTILITY FUNCTIONS
 # ========================================
 
+
 def get_filing_strategy(form_type: str, is_foreign: bool = False) -> Dict[str, Any]:
     """
     Determine filing strategy based on company type.
-    
+
     Args:
         form_type: Filing form type (10-K, 20-F, etc.)
         is_foreign: Whether company is foreign issuer
-        
+
     Returns:
         Dict with filing strategy details
     """
     if form_type == "20-F" or is_foreign:
         return {
-            'annual_form': '20-F',
-            'quarterly_form': '6-K',
-            'is_foreign': True,
-            'accounting_standard': 'IFRS'
+            "annual_form": "20-F",
+            "quarterly_form": "6-K",
+            "is_foreign": True,
+            "accounting_standard": "IFRS",
         }
     else:
         return {
-            'annual_form': '10-K',
-            'quarterly_form': '10-Q',
-            'is_foreign': False,
-            'accounting_standard': 'US-GAAP'
+            "annual_form": "10-K",
+            "quarterly_form": "10-Q",
+            "is_foreign": False,
+            "accounting_standard": "US-GAAP",
         }
-        
