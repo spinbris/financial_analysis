@@ -8,14 +8,15 @@ from pathlib import Path
 
 from rich.console import Console
 
-from agents import Runner, RunResult, custom_span, gen_trace_id, trace
+from agents.run import Runner, RunResult
+from agents.tracing import custom_span, gen_trace_id, trace
 
-from .agents.financials_agent import financials_agent
-from .agents.planner_agent import FinancialSearchItem, FinancialSearchPlan, planner_agent
-from .agents.risk_agent import risk_agent
-from .agents.search_agent import search_agent
-from .agents.verifier_agent import VerificationResult, verifier_agent
-from .agents.writer_agent import FinancialReportData, writer_agent
+from .agent_definitions.financials_agent import financials_agent
+from .agent_definitions.planner_agent import FinancialSearchItem, FinancialSearchPlan, planner_agent
+from .agent_definitions.risk_agent import risk_agent
+from .agent_definitions.search_agent import search_agent
+from .agent_definitions.verifier_agent import VerificationResult, verifier_agent
+from .agent_definitions.writer_agent import FinancialReportData, writer_agent
 from .printer import Printer
 
 

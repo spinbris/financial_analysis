@@ -89,9 +89,10 @@ async def extract_financial_data_deterministic(
         latest_date = None
 
         # Find the most recent financial filing by comparing dates
+        # Use amendments=False to get original filings with complete XBRL data
         for form in ["10-Q", "10-K", "20-F"]:
             try:
-                filings = company.get_filings(form=form)
+                filings = company.get_filings(form=form, amendments=False)
                 if filings and len(filings) > 0:
                     candidate = filings.latest(1)
                     # Get filing date for comparison
@@ -292,9 +293,10 @@ async def extract_financial_data_enhanced(
         form_type = None
         latest_date = None
 
+        # Use amendments=False to get original filings with complete XBRL data
         for form in ["10-Q", "10-K", "20-F"]:
             try:
-                filings = company.get_filings(form=form)
+                filings = company.get_filings(form=form, amendments=False)
                 if filings and len(filings) > 0:
                     candidate = filings.latest(1)
                     candidate_date = candidate.filing_date if hasattr(candidate, 'filing_date') else None

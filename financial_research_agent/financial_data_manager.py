@@ -247,7 +247,7 @@ class FinancialDataManager:
         """Get default cache database path"""
         # Use existing project database
         project_root = Path(__file__).parent.parent
-        return str(project_root / 'data'/'sec_cache''financials.db')
+        return str(project_root / 'data' / 'sec_cache' / 'financials.db')
     
     def _ensure_cache_tables(self):
         """Ensure cache tables exist"""

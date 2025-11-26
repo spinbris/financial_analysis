@@ -87,7 +87,7 @@ class AgentConfig:
             return None
 
         try:
-            from agents import ModelSettings
+            from agents.model_settings import ModelSettings
             from openai.types.shared import Reasoning
 
             # o3 models only support verbosity="medium"

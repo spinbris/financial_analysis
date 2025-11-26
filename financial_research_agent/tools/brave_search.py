@@ -12,7 +12,7 @@ API Documentation: https://brave.com/search/api/
 import os
 from typing import Any
 import httpx
-from agents import function_tool
+from agents.tool import function_tool
 
 
 async def _brave_search_impl(query: str, count: int = 10) -> str:

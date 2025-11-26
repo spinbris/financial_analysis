@@ -902,7 +902,6 @@ class WebApp:
                             None,  # Charts not available yet
                             None,
                             gr.update(visible=has_banking),  # Banking tab visibility
-                            None  # Download button placeholder (disabled)
                         )
 
             # Wait for analysis to complete
@@ -1009,7 +1008,6 @@ class WebApp:
                 margin_chart_fig,
                 metrics_chart_fig,
                 gr.update(visible=has_banking_ratios),  # Show banking tab only if ratios exist
-                None  # Download button placeholder (disabled)
             )
 
         except Exception as e:

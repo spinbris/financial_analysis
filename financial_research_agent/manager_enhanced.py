@@ -13,27 +13,29 @@ from rich.console import Console
 
 logger = logging.getLogger(__name__)
 
-from agents import Runner, RunResult, custom_span, gen_trace_id, trace
+from agents.run import Runner, RunResult
+from agents.tracing import custom_span, gen_trace_id, trace
 from agents.mcp import MCPServerStdio
 
-from .agents.edgar_agent import EdgarAnalysisSummary, edgar_agent
-from .agents.financial_metrics_agent import FinancialMetrics, financial_metrics_agent
-from .agents.financials_agent_enhanced import (
+from .agent_definitions.edgar_agent import EdgarAnalysisSummary, edgar_agent
+from .agent_definitions.financial_metrics_agent import FinancialMetrics, financial_metrics_agent
+from .agent_definitions.financials_agent_enhanced import (
     ComprehensiveFinancialAnalysis,
     financials_agent_enhanced,
 )
-from .agents.planner_agent import FinancialSearchItem, FinancialSearchPlan, planner_agent
-from .agents.risk_agent_enhanced import ComprehensiveRiskAnalysis, risk_agent_enhanced
-from .agents.search_agent import search_agent
-from .agents.verifier_agent import VerificationResult, verifier_agent
-from .agents.writer_agent_enhanced import ComprehensiveFinancialReport, writer_agent_enhanced
-from .agents.banking_ratios_agent import banking_ratios_agent
+from .agent_definitions.planner_agent import FinancialSearchItem, FinancialSearchPlan, planner_agent
+from .agent_definitions.risk_agent_enhanced import ComprehensiveRiskAnalysis, risk_agent_enhanced
+from .agent_definitions.search_agent import search_agent
+from .agent_definitions.verifier_agent import VerificationResult, verifier_agent
+from .agent_definitions.writer_agent_enhanced import ComprehensiveFinancialReport, writer_agent_enhanced
+from .agent_definitions.banking_ratios_agent import banking_ratios_agent
 from .models.banking_ratios import BankingRegulatoryRatios
 from .utils.sector_detection import detect_industry_sector, should_analyze_banking_ratios, get_peer_group
 from .config import AgentConfig, EdgarConfig
 from .formatters import format_financial_statements, format_financial_statements_gt, format_financial_metrics
 from .printer import Printer
 from .cache import FinancialDataCache
+from .financial_data_manager import FinancialDataManager, RatioCalculator, FinancialMetrics as UnifiedMetrics
 from .xbrl_calculation import get_calculation_parser_for_filing
 from .cost_tracker import CostTracker
 from .edgar_tools import extract_risk_factors, extract_financials_analysis_data
@@ -149,6 +151,14 @@ class EnhancedFinancialResearchManager:
 
         # PERFORMANCE: Cache for financial data (24 hour TTL)
         self.cache = FinancialDataCache(ttl_hours=24)
+        
+        # NEW: Unified financial data manager with EdgarTools + XBRL fallback
+        # Provides instant ratio calculations and better IFRS support
+        try:
+            self.unified_manager = FinancialDataManager()
+        except Exception as e:
+            logger.warning(f"FinancialDataManager initialization failed: {e}")
+            self.unified_manager = None
 
         # Cost tracking (initialized per run)
         self.cost_tracker: CostTracker | None = None
@@ -164,6 +174,54 @@ class EnhancedFinancialResearchManager:
             except Exception:
                 # Don't fail if callback has issues
                 pass
+    
+    def _get_unified_ratios(self, ticker: str) -> dict | None:
+        """
+        Get pre-calculated ratios from the unified FinancialDataManager.
+        
+        This provides 15+ financial ratios instantly via edgartools,
+        with XBRL fallback for IFRS companies like BHP.
+        
+        Returns dict with ratio values or None if unavailable.
+        """
+        if not self.unified_manager or not ticker:
+            return None
+        
+        try:
+            ratios_list = self.unified_manager.get_ratios(ticker, periods=1)
+            if not ratios_list:
+                return None
+            
+            ratios = ratios_list[0]
+            
+            # Convert to dict format compatible with existing FinancialMetrics model
+            return {
+                # Profitability
+                'profit_margin': ratios.profit_margin,
+                'operating_margin': ratios.operating_margin,
+                'gross_margin': ratios.gross_margin,
+                'return_on_equity': ratios.roe,
+                'return_on_assets': ratios.roa,
+                # Liquidity
+                'current_ratio': ratios.current_ratio,
+                'quick_ratio': ratios.quick_ratio,
+                'cash_ratio': ratios.cash_ratio,
+                # Leverage
+                'debt_to_equity': ratios.debt_to_equity,
+                'debt_to_assets': ratios.debt_to_assets,
+                'equity_multiplier': ratios.equity_multiplier,
+                # Efficiency
+                'asset_turnover': ratios.asset_turnover,
+                # Cash flow
+                'operating_cash_flow_ratio': ratios.operating_cash_flow_ratio,
+                'free_cash_flow_margin': ratios.free_cash_flow_margin,
+                # Metadata
+                'source': 'unified_manager',
+                'fiscal_year': ratios.fiscal_year,
+            }
+        except Exception as e:
+            logger.warning(f"Failed to get unified ratios for {ticker}: {e}")
+            return None
 
     async def run(self, query: str, ticker: str | None = None) -> None:
         # Normalize ticker to ADR if applicable (e.g., NAB -> NABZY)
@@ -717,7 +775,23 @@ class EnhancedFinancialResearchManager:
             if cached_statements:
                 self.console.print(f"[dim]✓ Using cached financial data for {lookup_key}[/dim]")
                 statements_data = cached_statements
-            else:
+            
+            # NEW: Get pre-calculated ratios from unified manager early
+            # This provides 15+ ratios instantly with XBRL fallback for IFRS companies
+            unified_ratios = None
+            if ticker:
+                try:
+                    self.printer.update_item("metrics", "Pre-calculating financial ratios via unified manager...")
+                    unified_ratios = self._get_unified_ratios(ticker)
+                    if unified_ratios:
+                        ratio_count = sum(1 for k, v in unified_ratios.items() 
+                                         if v is not None and k not in ('source', 'fiscal_year'))
+                        self.console.print(f"[dim]✓ Unified manager pre-calculated {ratio_count} ratios instantly[/dim]")
+                except Exception as e:
+                    logger.warning(f"Unified ratios pre-calculation failed: {e}")
+                    unified_ratios = None
+            
+            if not cached_statements:
                 # Step 1: Use enhanced extraction to get complete financial data with XBRL features
                 self.printer.update_item("metrics", f"Extracting financial data for {lookup_key} using enhanced XBRL extraction...")
 
@@ -1032,6 +1106,81 @@ Use get_company_facts to get ALL available XBRL data."""
 
             # Copy raw XBRL CSV files to output folder for audit trail
             self._copy_xbrl_audit_files(company_name)
+            
+            # NEW: Merge pre-calculated ratios from unified manager into metrics
+            # Uses ratios retrieved earlier in the method (avoids duplicate API call)
+            if ticker:
+                if unified_ratios is None:
+                    # Fetch if not already done earlier (fallback)
+                    unified_ratios = self._get_unified_ratios(ticker)
+                
+                if unified_ratios:
+                    supplemented = []
+                    
+                    # Profitability ratios
+                    if unified_ratios.get('profit_margin') is not None and not metrics.net_profit_margin:
+                        metrics.net_profit_margin = unified_ratios['profit_margin']
+                        supplemented.append('profit_margin')
+                    if unified_ratios.get('gross_margin') is not None and not metrics.gross_profit_margin:
+                        metrics.gross_profit_margin = unified_ratios['gross_margin']
+                        supplemented.append('gross_margin')
+                    if unified_ratios.get('operating_margin') is not None and not metrics.operating_margin:
+                        metrics.operating_margin = unified_ratios['operating_margin']
+                        supplemented.append('operating_margin')
+                    if unified_ratios.get('return_on_equity') is not None and not metrics.return_on_equity:
+                        metrics.return_on_equity = unified_ratios['return_on_equity']
+                        supplemented.append('ROE')
+                    if unified_ratios.get('return_on_assets') is not None and not metrics.return_on_assets:
+                        metrics.return_on_assets = unified_ratios['return_on_assets']
+                        supplemented.append('ROA')
+                    
+                    # Liquidity ratios
+                    if unified_ratios.get('current_ratio') is not None and not metrics.current_ratio:
+                        metrics.current_ratio = unified_ratios['current_ratio']
+                        supplemented.append('current_ratio')
+                    if unified_ratios.get('quick_ratio') is not None and not metrics.quick_ratio:
+                        metrics.quick_ratio = unified_ratios['quick_ratio']
+                        supplemented.append('quick_ratio')
+                    if unified_ratios.get('cash_ratio') is not None:
+                        if hasattr(metrics, 'cash_ratio') and not metrics.cash_ratio:
+                            metrics.cash_ratio = unified_ratios['cash_ratio']
+                            supplemented.append('cash_ratio')
+                    
+                    # Leverage ratios
+                    if unified_ratios.get('debt_to_equity') is not None and not metrics.debt_to_equity:
+                        metrics.debt_to_equity = unified_ratios['debt_to_equity']
+                        supplemented.append('debt_to_equity')
+                    if unified_ratios.get('debt_to_assets') is not None and not metrics.debt_to_assets:
+                        metrics.debt_to_assets = unified_ratios['debt_to_assets']
+                        supplemented.append('debt_to_assets')
+                    if unified_ratios.get('equity_multiplier') is not None:
+                        if hasattr(metrics, 'equity_multiplier') and not metrics.equity_multiplier:
+                            metrics.equity_multiplier = unified_ratios['equity_multiplier']
+                            supplemented.append('equity_multiplier')
+                    
+                    # Efficiency ratios
+                    if unified_ratios.get('asset_turnover') is not None and not metrics.asset_turnover:
+                        metrics.asset_turnover = unified_ratios['asset_turnover']
+                        supplemented.append('asset_turnover')
+                    
+                    # Cash flow ratios (may not exist on model)
+                    if unified_ratios.get('operating_cash_flow_ratio') is not None:
+                        if hasattr(metrics, 'operating_cash_flow_ratio') and not metrics.operating_cash_flow_ratio:
+                            metrics.operating_cash_flow_ratio = unified_ratios['operating_cash_flow_ratio']
+                            supplemented.append('ocf_ratio')
+                    if unified_ratios.get('free_cash_flow_margin') is not None:
+                        if hasattr(metrics, 'free_cash_flow_margin') and not metrics.free_cash_flow_margin:
+                            metrics.free_cash_flow_margin = unified_ratios['free_cash_flow_margin']
+                            supplemented.append('fcf_margin')
+                    
+                    # Log results
+                    if supplemented:
+                        self.console.print(
+                            f"[green]✓ Supplemented {len(supplemented)} ratios from unified manager: "
+                            f"{', '.join(supplemented[:5])}{'...' if len(supplemented) > 5 else ''}[/green]"
+                        )
+                    else:
+                        self.console.print("[dim]All ratios already calculated by LLM agent[/dim]")
 
             self.printer.mark_item_done("metrics")
             return metrics

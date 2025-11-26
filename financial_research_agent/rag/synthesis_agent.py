@@ -6,7 +6,9 @@ This lightweight agent is optimized for conversational Q&A over the indexed fina
 
 from pydantic import BaseModel, Field
 from datetime import datetime
-from agents import Agent, Runner, AgentOutputSchema
+from agents.agent import Agent
+from agents.run import Runner
+from agents.agent_output import AgentOutputSchema
 
 # Import config to ensure .env is loaded
 from financial_research_agent import config  # noqa: F401

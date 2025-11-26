@@ -7,9 +7,25 @@ This script starts the Gradio web interface on http://localhost:7860
 
 import sys
 import os
+from pathlib import Path
 
 # Add project root to path
-sys.path.insert(0, os.path.dirname(__file__))
+project_root = Path(__file__).parent
+sys.path.insert(0, str(project_root))
+
+# Load .env from project root BEFORE importing modules that use config
+from dotenv import load_dotenv
+env_path = project_root / ".env"
+if env_path.exists():
+    load_dotenv(env_path, override=True)
+    print(f"✅ Loaded environment from {env_path}")
+    # Verify EDGAR is enabled
+    if os.getenv("ENABLE_EDGAR_INTEGRATION", "false").lower() == "true":
+        print("✅ EDGAR integration is ENABLED")
+    else:
+        print("⚠️  EDGAR integration is DISABLED")
+else:
+    print(f"⚠️  No .env file found at {env_path}")
 
 from financial_research_agent.web_app import main
 

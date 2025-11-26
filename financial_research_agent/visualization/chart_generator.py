@@ -31,10 +31,48 @@ class FinancialChartGenerator:
         set_identity(identity)
         try:
             self.company = Company(ticker)
-            self.financials = self.company.get_financials()
+            # Get financials from the most recent NON-AMENDED filing
+            # to ensure complete XBRL data is available
+            self.financials = self._get_financials_from_original_filing()
         except Exception as e:
             logger.error(f"Failed to initialize financials for {ticker}: {e}")
             self.financials = None
+
+    def _get_financials_from_original_filing(self):
+        """
+        Get financials from the most recent original (non-amended) filing.
+        
+        Amended filings (10-K/A, 10-Q/A) often only contain partial XBRL data
+        (e.g., just the Cover statement), so we need to fetch the original filing.
+        
+        Returns:
+            Financials object or None
+        """
+        filing = None
+        latest_date = None
+        
+        # Try each form type and find the most recent original filing
+        for form in ["10-Q", "10-K", "20-F"]:
+            try:
+                # Use amendments=False to exclude amended filings
+                filings = self.company.get_filings(form=form, amendments=False)
+                if filings and len(filings) > 0:
+                    candidate = filings.latest(1)
+                    candidate_date = candidate.filing_date if hasattr(candidate, 'filing_date') else None
+                    if candidate_date and (latest_date is None or candidate_date > latest_date):
+                        filing = candidate
+                        latest_date = candidate_date
+            except Exception as e:
+                logger.debug(f"No {form} filings found: {e}")
+                continue
+        
+        if filing:
+            logger.info(f"Using {filing.form} filed {filing.filing_date} for charts (amendments excluded)")
+            return filing.obj().financials
+        else:
+            # Fallback to get_financials() if no filings found
+            logger.warning(f"No original filings found, falling back to get_financials()")
+            return self.company.get_financials()
 
     def _find_line_item(self, df: pd.DataFrame, search_terms: List[str]) -> Optional[pd.Series]:
         """

@@ -5,7 +5,7 @@ This module provides comprehensive documentation of available MCP tools
 from the SEC EDGAR server, helping agents understand what tools they can use.
 """
 
-from agents import function_tool
+from agents.tool import function_tool
 
 
 @function_tool

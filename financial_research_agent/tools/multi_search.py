@@ -12,7 +12,7 @@ This ensures uninterrupted research even when one provider hits limits.
 import os
 from typing import Any
 import httpx
-from agents import function_tool
+from agents.tool import function_tool
 
 
 async def _multi_search_impl(query: str, count: int = 10) -> str:
