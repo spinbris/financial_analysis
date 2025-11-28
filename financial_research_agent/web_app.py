@@ -1363,31 +1363,34 @@ The following companies are not yet in the knowledge base:
         """Create the Gradio interface."""
 
         # Build Blocks kwargs conditionally for Gradio version compatibility
-        # Older Gradio versions (3.x) don't support the theme parameter
+        # Gradio 3.x only supports basic parameters like 'title'
+        # Gradio 4.x+ supports 'theme', 'js', and other advanced parameters
         blocks_kwargs = {
             'title': 'Financial Research Agent',
-            'js': """
-            function refresh() {
-                const url = new URL(window.location);
-                if (url.searchParams.get('__theme') !== 'light') {
-                    url.searchParams.set('__theme', 'light');
-                    window.location.href = url.href;
-                }
-            }
-            """,
         }
         
-        # Only add theme for Gradio 4.x+ (theme parameter added in Gradio 4.0)
-        # Check version explicitly since create_theme() may succeed but gr.Blocks() rejects it
+        # Check Gradio version for feature support
         try:
             gradio_version = getattr(gr, '__version__', '0.0.0')
             major_version = int(gradio_version.split('.')[0])
+            
             if major_version >= 4:
+                # Gradio 4.x+ supports theme and js parameters
                 theme = create_theme()
                 if theme is not None:
                     blocks_kwargs['theme'] = theme
+                
+                blocks_kwargs['js'] = """
+                function refresh() {
+                    const url = new URL(window.location);
+                    if (url.searchParams.get('__theme') !== 'light') {
+                        url.searchParams.set('__theme', 'light');
+                        window.location.href = url.href;
+                    }
+                }
+                """
         except Exception:
-            pass  # Skip theme on older Gradio versions or version parse errors
+            pass  # Use minimal kwargs on older Gradio versions or version parse errors
 
         with gr.Blocks(**blocks_kwargs,
             css="""
