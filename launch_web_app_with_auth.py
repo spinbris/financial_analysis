@@ -398,10 +398,12 @@ def create_app():
     gradio_app = web_app_instance.create_interface()
 
     # Mount Gradio app at /app (requires authentication)
+    # Note: root_path ensures API routes work correctly at subpath
     fastapi_app = gr.mount_gradio_app(
         fastapi_app,
         gradio_app,
-        path="/app"
+        path="/app",
+        root_path="/app"  # Fix for Gradio 5.x API routing
     )
 
     return fastapi_app
