@@ -19,28 +19,56 @@ from financial_research_agent.config import AgentConfig
 
 # Morningstar-inspired theme
 def create_theme():
-    """Create a professional Morningstar-style theme."""
-    return gr.themes.Soft(
-        primary_hue="blue",
-        secondary_hue="slate",
-        neutral_hue="slate",
-    ).set(
-        body_background_fill="#f5f7fa",
-        body_text_color="#1a1d1f",
-        block_background_fill="white",
-        block_border_color="#e0e4e8",
-        block_border_width="1px",
-        block_label_background_fill="white",
-        block_label_text_color="#1a1d1f",
-        block_title_text_color="#1a1d1f",
-        button_primary_background_fill="#0066cc",
-        button_primary_background_fill_hover="#0052a3",
-        button_primary_text_color="white",
-        button_secondary_background_fill="#f0f2f5",
-        button_secondary_text_color="#1a1d1f",
-        input_background_fill="white",
-        input_border_color="#d0d5dd",
-    )
+    """Create a professional Morningstar-style theme.
+    
+    Returns None if theme creation fails (older Gradio versions).
+    """
+    try:
+        return gr.themes.Soft(
+            primary_hue="blue",
+            secondary_hue="slate",
+            neutral_hue="slate",
+        ).set(
+            body_background_fill="#f5f7fa",
+            body_text_color="#1a1d1f",
+            block_background_fill="white",
+            block_border_color="#e0e4e8",
+            block_border_width="1px",
+            block_label_background_fill="white",
+            block_label_text_color="#1a1d1f",
+            block_title_text_color="#1a1d1f",
+            button_primary_background_fill="#0066cc",
+            button_primary_background_fill_hover="#0052a3",
+            button_primary_text_color="white",
+            button_secondary_background_fill="#f0f2f5",
+            button_secondary_text_color="#1a1d1f",
+            input_background_fill="white",
+            input_border_color="#d0d5dd",
+        )
+    except Exception:
+        # Older Gradio versions may not support themes
+        return None
+
+
+def get_blocks_kwargs():
+    """Get kwargs for gr.Blocks(), handling theme compatibility."""
+    theme = create_theme()
+    kwargs = {
+        'title': 'Financial Research Agent',
+        'js': """
+            function refresh() {
+                const url = new URL(window.location);
+                if (url.searchParams.get('__theme') !== 'light') {
+                    url.searchParams.set('__theme', 'light');
+                    window.location.href = url.href;
+                }
+            }
+        """,
+    }
+    # Only add theme if it was created successfully
+    if theme is not None:
+        kwargs['theme'] = theme
+    return kwargs
 
 
 # KB Query examples
@@ -1334,10 +1362,11 @@ The following companies are not yet in the knowledge base:
     def create_interface(self):
         """Create the Gradio interface."""
 
-        with gr.Blocks(
-            theme=create_theme(),
-            title="Financial Research Agent",
-            js="""
+        # Build Blocks kwargs conditionally for Gradio version compatibility
+        # Older Gradio versions (3.x) don't support the theme parameter
+        blocks_kwargs = {
+            'title': 'Financial Research Agent',
+            'js': """
             function refresh() {
                 const url = new URL(window.location);
                 if (url.searchParams.get('__theme') !== 'light') {
@@ -1346,6 +1375,17 @@ The following companies are not yet in the knowledge base:
                 }
             }
             """,
+        }
+        
+        # Only add theme for Gradio 4.x+ (theme parameter added in Gradio 4.0)
+        try:
+            theme = create_theme()
+            if theme is not None:
+                blocks_kwargs['theme'] = theme
+        except Exception:
+            pass  # Skip theme on older Gradio versions
+
+        with gr.Blocks(**blocks_kwargs,
             css="""
                 /* ==================== PROFESSIONAL FINANCIAL PLATFORM STYLING ==================== */
 
