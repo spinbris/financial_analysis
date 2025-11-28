@@ -13,6 +13,9 @@ import yfinance as yf
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+# Log Gradio version for debugging Railway deployment issues
+print(f"🔧 Gradio version: {gr.__version__}")
+
 from financial_research_agent.manager_enhanced import EnhancedFinancialResearchManager
 from financial_research_agent.config import AgentConfig
 
@@ -1362,9 +1365,37 @@ The following companies are not yet in the knowledge base:
     def create_interface(self):
         """Create the Gradio interface."""
 
-        # Use bare gr.Blocks() for maximum Gradio version compatibility
-        # Railway's Gradio version doesn't support title, css, theme, or js parameters
-        with gr.Blocks() as app:
+        # Professional CSS styling
+        custom_css = """
+            .gradio-container { font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif !important; max-width: 1600px; margin: 0 auto; background: #fafbfc; }
+            .gr-box, .gr-form, .gr-panel { border-radius: 12px !important; border: 1px solid #e1e4e8 !important; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important; background: white !important; padding: 20px !important; }
+            h1 { font-size: 2.25rem !important; font-weight: 700 !important; color: #0d1117 !important; }
+            h2 { font-size: 1.75rem !important; font-weight: 600 !important; color: #1f2937 !important; }
+            h3 { font-size: 1.25rem !important; font-weight: 600 !important; color: #374151 !important; }
+            .gr-button-primary { background: linear-gradient(135deg, #0066cc 0%, #0052a3 100%) !important; border: none !important; border-radius: 8px !important; font-weight: 600 !important; }
+            .status-box { padding: 24px !important; border-radius: 12px !important; background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%) !important; border: 1px solid #bae6fd !important; }
+            .report-content { font-family: 'Charter', 'Georgia', serif !important; font-size: 16px !important; line-height: 1.7 !important; color: #1f2937 !important; }
+            .report-content table { border-collapse: collapse !important; width: 100% !important; margin: 24px 0 !important; background: white !important; }
+            .report-content table th { background: #f8fafc !important; border-bottom: 2px solid #0066cc !important; font-weight: 600 !important; padding: 14px 16px !important; }
+            .report-content table td { padding: 12px 16px !important; border-bottom: 1px solid #f1f5f9 !important; }
+            .section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px !important; }
+            .section-badge { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; font-weight: 600; font-size: 18px; }
+            .home-section { background: white !important; border-radius: 12px !important; padding: 24px !important; margin-bottom: 24px !important; border: 1px solid #e1e4e8 !important; }
+        """
+
+        # Build Blocks kwargs - add CSS/theme only if supported
+        blocks_kwargs = {}
+        try:
+            # Test if theme parameter is supported
+            theme = create_theme()
+            if theme:
+                blocks_kwargs['theme'] = theme
+            blocks_kwargs['css'] = custom_css
+            blocks_kwargs['title'] = 'Financial Research Agent'
+        except Exception as e:
+            print(f"⚠️ Gradio doesn't support all features: {e}")
+
+        with gr.Blocks(**blocks_kwargs) as app:
 
             # Header - Simplified to match Figma design
             gr.Markdown(
