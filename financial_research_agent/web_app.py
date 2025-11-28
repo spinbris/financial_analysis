@@ -1362,37 +1362,9 @@ The following companies are not yet in the knowledge base:
     def create_interface(self):
         """Create the Gradio interface."""
 
-        # Build Blocks kwargs conditionally for Gradio version compatibility
-        # Gradio 3.x only supports basic parameters like 'title'
-        # Gradio 4.x+ supports 'theme', 'js', and other advanced parameters
-        blocks_kwargs = {
-            'title': 'Financial Research Agent',
-        }
-        
-        # Check Gradio version for feature support
-        try:
-            gradio_version = getattr(gr, '__version__', '0.0.0')
-            major_version = int(gradio_version.split('.')[0])
-            
-            if major_version >= 4:
-                # Gradio 4.x+ supports theme and js parameters
-                theme = create_theme()
-                if theme is not None:
-                    blocks_kwargs['theme'] = theme
-                
-                blocks_kwargs['js'] = """
-                function refresh() {
-                    const url = new URL(window.location);
-                    if (url.searchParams.get('__theme') !== 'light') {
-                        url.searchParams.set('__theme', 'light');
-                        window.location.href = url.href;
-                    }
-                }
-                """
-        except Exception:
-            pass  # Use minimal kwargs on older Gradio versions or version parse errors
-
-        with gr.Blocks(**blocks_kwargs,
+        # Use minimal gr.Blocks() parameters for maximum Gradio version compatibility
+        # Theme and JS are handled via CSS instead
+        with gr.Blocks(title='Financial Research Agent',
             css="""
                 /* ==================== PROFESSIONAL FINANCIAL PLATFORM STYLING ==================== */
 
