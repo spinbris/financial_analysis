@@ -1378,12 +1378,16 @@ The following companies are not yet in the knowledge base:
         }
         
         # Only add theme for Gradio 4.x+ (theme parameter added in Gradio 4.0)
+        # Check version explicitly since create_theme() may succeed but gr.Blocks() rejects it
         try:
-            theme = create_theme()
-            if theme is not None:
-                blocks_kwargs['theme'] = theme
+            gradio_version = getattr(gr, '__version__', '0.0.0')
+            major_version = int(gradio_version.split('.')[0])
+            if major_version >= 4:
+                theme = create_theme()
+                if theme is not None:
+                    blocks_kwargs['theme'] = theme
         except Exception:
-            pass  # Skip theme on older Gradio versions
+            pass  # Skip theme on older Gradio versions or version parse errors
 
         with gr.Blocks(**blocks_kwargs,
             css="""
