@@ -802,13 +802,9 @@ class EnhancedFinancialResearchManager:
                         lookup_key
                     )
 
-                    # PERFORMANCE: Cache the extracted data using ticker (not parsed company_name)
-                    if statements_data:
-                        self.cache.set(lookup_key, "financial_statements", statements_data)
-
-                        # Extract official company name from statements_data if available
-                        if 'company_name' in statements_data:
-                            company_name = statements_data['company_name']
+                    # Extract official company name from statements_data if available
+                    if statements_data and 'company_name' in statements_data:
+                        company_name = statements_data['company_name']
 
                 except Exception as e:
                     self.console.print(f"[yellow]Warning: Deterministic extraction failed: {e}[/yellow]")
@@ -921,6 +917,11 @@ class EnhancedFinancialResearchManager:
                         self.console.print(f"[yellow]Warning: YoY table generation failed: {e}[/yellow]")
                         import traceback
                         traceback.print_exc()
+                
+                # PERFORMANCE: Cache the data NOW (after YoY generation) so cached data includes computed fields
+                if not cached_statements and statements_data:
+                    self.cache.set(lookup_key, "financial_statements", statements_data)
+                    self.console.print(f"[dim]✓ Cached financial data with YoY tables for {lookup_key}[/dim]")
 
             # Step 2: Clone metrics agent with MCP server attached
             metrics_with_mcp = financial_metrics_agent.clone(mcp_servers=[self.edgar_server])
