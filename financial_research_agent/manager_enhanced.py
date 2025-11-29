@@ -152,6 +152,8 @@ class EnhancedFinancialResearchManager:
         # PERFORMANCE: Cache for financial data (24 hour TTL)
         # Use same parent directory as output for Railway persistence
         cache_dir = self.output_dir.parent / "cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
+        self.console.print(f"[dim]💾 Cache directory: {cache_dir.absolute()}[/dim]")
         self.cache = FinancialDataCache(cache_dir=str(cache_dir), ttl_hours=24)
         
         # NEW: Unified financial data manager with EdgarTools + XBRL fallback
@@ -775,9 +777,10 @@ class EnhancedFinancialResearchManager:
             # PERFORMANCE: Check cache first
             cached_statements = self.cache.get(lookup_key, "financial_statements")
             if cached_statements:
-                self.console.print(f"[dim]✓ Using cached financial data for {lookup_key}[/dim]")
+                self.console.print(f"[green bold]✓ Using cached financial data for {lookup_key}[/green bold]")
                 statements_data = cached_statements
             else:
+                self.console.print(f"[dim]⚠️  Cache miss for {lookup_key} - will fetch fresh data[/dim]")
                 statements_data = None
             
             # NEW: Get pre-calculated ratios from unified manager early
@@ -924,7 +927,7 @@ class EnhancedFinancialResearchManager:
                 # PERFORMANCE: Cache the data NOW (after YoY generation) so cached data includes computed fields
                 if not cached_statements and statements_data:
                     self.cache.set(lookup_key, "financial_statements", statements_data)
-                    self.console.print(f"[dim]✓ Cached financial data with YoY tables for {lookup_key}[/dim]")
+                    self.console.print(f"[green bold]✓ Cached financial data with YoY tables for {lookup_key}[/green bold]")
 
             # Step 2: Clone metrics agent with MCP server attached
             metrics_with_mcp = financial_metrics_agent.clone(mcp_servers=[self.edgar_server])

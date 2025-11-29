@@ -96,9 +96,12 @@ class FinancialDataCache:
         try:
             with open(cache_path, 'w', encoding='utf-8') as f:
                 json.dump(cache_data, f, indent=2)
-        except Exception:
-            # Fail silently - caching is optional
-            pass
+            print(f"✓ Cache saved: {cache_path}")
+        except Exception as e:
+            # Log the error instead of failing silently
+            print(f"⚠️  Cache save failed for {company_name}/{data_type}: {e}")
+            import traceback
+            traceback.print_exc()
 
     def clear_expired(self) -> int:
         """
