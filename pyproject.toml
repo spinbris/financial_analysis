@@ -21,6 +21,7 @@ dependencies = [
     "great-tables>=0.8.0",
     "supabase>=2.0.0",
     "schedule>=1.2.2",
+    "hishel==0.0.30",
 ]
 
 [tool.setuptools.packages.find]
