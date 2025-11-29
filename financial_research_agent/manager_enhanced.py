@@ -149,17 +149,15 @@ class EnhancedFinancialResearchManager:
         # Signature: callback(progress: float, description: str)
         self.progress_callback = progress_callback
 
-        # PERFORMANCE: Cache for financial data (24 hour TTL)
-        # Use same parent directory as output for Railway persistence
-        cache_dir = self.output_dir.parent / "cache"
-        cache_dir.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
-        self.console.print(f"[dim]💾 Cache directory: {cache_dir.absolute()}[/dim]")
-        self.cache = FinancialDataCache(cache_dir=str(cache_dir), ttl_hours=24)
+        # TASK 2.4: Use FinancialDataManager (SQLite cache) for all financial data
+        # This provides 18+ pre-calculated ratios and persistent caching
+        # Database stored in persistent /data volume on Railway
+        db_path = self.output_dir.parent / "sec_cache" / "financials.db"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.console.print(f"[dim]💾 Financial data cache: {db_path.absolute()}[/dim]")
         
-        # NEW: Unified financial data manager with EdgarTools + XBRL fallback
-        # Provides instant ratio calculations and better IFRS support
         try:
-            self.unified_manager = FinancialDataManager()
+            self.unified_manager = FinancialDataManager(cache_db_path=str(db_path))
         except Exception as e:
             logger.warning(f"FinancialDataManager initialization failed: {e}")
             self.unified_manager = None
@@ -774,14 +772,9 @@ class EnhancedFinancialResearchManager:
             # Use ticker if provided (from CLI), otherwise use parsed company_name
             lookup_key = ticker if ticker else company_name
 
-            # PERFORMANCE: Check cache first
-            cached_statements = self.cache.get(lookup_key, "financial_statements")
-            if cached_statements:
-                self.console.print(f"[green bold]✓ Using cached financial data for {lookup_key}[/green bold]")
-                statements_data = cached_statements
-            else:
-                self.console.print(f"[dim]⚠️  Cache miss for {lookup_key} - will fetch fresh data[/dim]")
-                statements_data = None
+            # TASK 2.4: Fetch fresh financial data using edgartools
+            # FinancialDataManager caches metrics/ratios in SQLite (not full DataFrames)
+            # Fresh extraction is fast (~10-20s) and ensures data quality
             
             # NEW: Get pre-calculated ratios from unified manager early
             # This provides 15+ ratios instantly with XBRL fallback for IFRS companies
@@ -798,15 +791,15 @@ class EnhancedFinancialResearchManager:
                     logger.warning(f"Unified ratios pre-calculation failed: {e}")
                     unified_ratios = None
             
-            if not cached_statements:
-                # Step 1: Use enhanced extraction to get complete financial data with XBRL features
-                self.printer.update_item("metrics", f"Extracting financial data for {lookup_key} using enhanced XBRL extraction...")
+            # Step 1: Use enhanced extraction to get complete financial data with XBRL features
+            self.printer.update_item("metrics", f"Extracting financial data for {lookup_key} using enhanced XBRL extraction...")
 
-                try:
-                    statements_data = await extract_financial_data_enhanced(
-                        self.edgar_server,
-                        lookup_key
-                    )
+            statements_data = None
+            try:
+                statements_data = await extract_financial_data_enhanced(
+                    self.edgar_server,
+                    lookup_key
+                )
 
                     # Extract official company name from statements_data if available
                     if statements_data and 'company_name' in statements_data:
