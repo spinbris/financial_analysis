@@ -775,6 +775,8 @@ class EnhancedFinancialResearchManager:
             if cached_statements:
                 self.console.print(f"[dim]✓ Using cached financial data for {lookup_key}[/dim]")
                 statements_data = cached_statements
+            else:
+                statements_data = None
             
             # NEW: Get pre-calculated ratios from unified manager early
             # This provides 15+ ratios instantly with XBRL fallback for IFRS companies
@@ -795,7 +797,6 @@ class EnhancedFinancialResearchManager:
                 # Step 1: Use enhanced extraction to get complete financial data with XBRL features
                 self.printer.update_item("metrics", f"Extracting financial data for {lookup_key} using enhanced XBRL extraction...")
 
-                statements_data = None
                 try:
                     statements_data = await extract_financial_data_enhanced(
                         self.edgar_server,
