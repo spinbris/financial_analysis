@@ -150,7 +150,9 @@ class EnhancedFinancialResearchManager:
         self.progress_callback = progress_callback
 
         # PERFORMANCE: Cache for financial data (24 hour TTL)
-        self.cache = FinancialDataCache(ttl_hours=24)
+        # Use same parent directory as output for Railway persistence
+        cache_dir = self.output_dir.parent / "cache"
+        self.cache = FinancialDataCache(cache_dir=str(cache_dir), ttl_hours=24)
         
         # NEW: Unified financial data manager with EdgarTools + XBRL fallback
         # Provides instant ratio calculations and better IFRS support
